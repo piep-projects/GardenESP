@@ -19,6 +19,6 @@ zur Steuerung der Gartenbewässerung auf Basis von **ESPHome**-ESP32-Hardware.
 2. [Erste Box & Flash](erste-box.md) — Box anlegen, YAML generieren, flashen, einbinden
 3. [Hardware](hardware.md) — welches Board passt
 
-!!! note "Diese Dokumentation ist im Aufbau"
-    Die Seiten werden laufend ergänzt. Fehlt etwas? Bitte ein
+!!! note "Feedback willkommen"
+    Fehlt etwas oder ist eine Stelle unklar? Bitte ein
     [Issue](https://github.com/piep-projects/GardenESP/issues) öffnen.
