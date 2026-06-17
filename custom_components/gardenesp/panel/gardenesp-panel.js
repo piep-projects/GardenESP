@@ -75,6 +75,9 @@ const WEEKDAYS = ["mo", "tu", "we", "th", "fr", "sa", "su"];
 const WEEKDAY_LABEL = { mo: "Mo", tu: "Di", we: "Mi", th: "Do", fr: "Fr", sa: "Sa", su: "So" };
 const REPEAT = { daily: "Täglich", weekly: "Wöchentlich", monthly: "Monatlich" };
 const ICON = "mdi:sprout"; // shared with sidebar + card (const.py PANEL_ICON)
+// Online-Hilfe (GitHub Pages). Single source of truth ist die Doku-Site — das Panel
+// verlinkt nur dorthin (Header-„? Hilfe" + Onboarding), statt die Anleitung zu duplizieren.
+const DOCS_URL = "https://piep-projects.github.io/GardenESP/";
 
 const TABS = [
   { id: "lines", label: "Linien" },
@@ -445,8 +448,14 @@ class GardenEspPanel extends HTMLElement {
       <div class="headbtns">
         <button class="btn ghost" data-act="back" title="Zurück zum Dashboard">← Dashboard</button>
         <button class="btn ghost" data-act="refresh" title="Aktualisieren">⟳</button>
+        <a class="btn ghost" href="${DOCS_URL}" target="_blank" rel="noopener" title="Online-Hilfe öffnen">? Hilfe</a>
       </div></div>
       <nav class="tabs">${tabs}${this._fwBanner()}</nav>`;
+  }
+
+  // Link to a page of the online docs, styled as a button (opens in a new tab).
+  _docsBtn(path, label, cls = "ghost") {
+    return `<a class="btn ${cls}" href="${DOCS_URL}${path}" target="_blank" rel="noopener">${label}</a>`;
   }
 
   // --- list views (settings) -------------------------------------------------
@@ -682,7 +691,9 @@ class GardenEspPanel extends HTMLElement {
             ${this._autoToggle(ln)}
             <button class="btn" data-editline="${esc(ln.id)}">Bearbeiten</button></div>`;
         }).join("")
-      : `<div class="empty">Noch keine Linien.</div>`;
+      : Object.keys(cfg.boxes || {}).length
+        ? `<div class="empty">Noch keine Linien. „+ Neu" ordnet einem Ventil-Ausgang eine Linie zu.</div>`
+        : `<div class="empty">Noch keine Linien — lege zuerst im Tab „Boxen" eine Box an. ${this._docsBtn("erste-box/", "📖 Erste Schritte")}</div>`;
     return this._listHeader("Bewässerungslinien", "line") + `<section class="cardbox">${body}</section>`;
   }
 
@@ -951,7 +962,13 @@ class GardenEspPanel extends HTMLElement {
             </div>
           </div>`;
         }).join("")
-      : `<div class="empty">Noch keine Boxen — lege zuerst eine Box mit Ein-/Ausgängen an.</div>`;
+      : `<div class="empty onboard">
+          <p><strong>Willkommen bei GardenESP 🌱</strong></p>
+          <p>Lege zuerst eine <strong>Box</strong> (deinen ESP-Controller) mit ihren Ein-/Ausgängen an,
+             generiere das ESPHome-YAML und flashe sie. Die Schritt-für-Schritt-Anleitung inkl. erstem
+             Flash steht in der Online-Hilfe.</p>
+          <p>${this._docsBtn("erste-box/", "📖 Anleitung: Erste Box & Flash", "primary")}</p>
+        </div>`;
     return this._listHeader("Boxen", "box") +
       `<section class="cardbox boxlist">${body}</section>`;
   }
@@ -1977,8 +1994,12 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: v
 .btn.danger { background: transparent; color: var(--error-color, #f44336); }
 .btn.small { padding: 4px 9px; font-size: 12px; }
 .btn:hover { filter: brightness(.95); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
 .empty { color: var(--secondary-text-color); padding: 8px 0; }
 .empty.err { color: var(--error-color, #f44336); }
+.empty.onboard { padding: 12px 0; max-width: 560px; line-height: 1.45; }
+.empty.onboard p { margin: 6px 0; }
+.empty.onboard strong { color: var(--primary-text-color); }
 .caltable { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
 .calrow { display: flex; align-items: center; gap: 8px; }
 .calrow input { flex: 1; min-width: 0; }

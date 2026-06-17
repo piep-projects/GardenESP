@@ -18,9 +18,6 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
-          # 'brands' requires a home-assistant/brands PR (separate, external review).
-          # Ignore until that lands; all other HACS checks must pass.
-          ignore: brands
 
   hassfest:
     name: hassfest
