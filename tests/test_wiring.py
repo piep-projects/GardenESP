@@ -58,6 +58,12 @@ class PinoutIntegrityTest(unittest.TestCase):
         strapping = {p["gpio"] for p in wiring.WROOM_DEVKITC_38 if p["cap"] == wiring.CAP_STRAPPING}
         self.assertEqual(strapping, {0, 2, 5, 12, 15})
 
+    def test_uart_pins(self):
+        # TX0/RX0 carry the serial console (logger drives the pin + boot glitches) —
+        # flagged as a caveat, not plain IO (and omitted from the panel GPIO dropdown).
+        uart = {p["gpio"] for p in wiring.WROOM_DEVKITC_38 if p["cap"] == wiring.CAP_UART}
+        self.assertEqual(uart, {1, 3})
+
 
 class BuildTest(unittest.TestCase):
     def test_unknown_box(self):

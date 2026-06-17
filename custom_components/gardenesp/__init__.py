@@ -89,14 +89,26 @@ async def async_remove_config_entry_device(
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry.
+
+    The sidebar panel is intentionally **not** removed here: creating a new
+    object schedules a full entry reload (unload → setup), and removing the panel
+    mid-reload kicks the user — who is standing on that very panel — back to the
+    default dashboard. The panel is torn down only on real removal
+    (``async_remove_entry``); the re-register in setup is a guarded no-op.
+    """
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         coordinator: GardenESPCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_shutdown()
-        if not hass.data[DOMAIN]:
-            frontend.async_remove_panel(hass, PANEL_URL_PATH)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the sidebar panel once the last GardenESP entry is gone (the static
+    path can't be unregistered, so the panel is the only frontend cleanup)."""
+    if not hass.data.get(DOMAIN):
+        frontend.async_remove_panel(hass, PANEL_URL_PATH)
 
 
 _STATIC_REGISTERED = f"{DOMAIN}_static_registered"

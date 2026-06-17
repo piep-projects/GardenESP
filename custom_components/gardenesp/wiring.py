@@ -42,6 +42,7 @@ CAP_POWER = "power"          # 3V3 / 5V / EN / GND — not a usable signal pin
 CAP_IO = "io"                # freely usable digital GPIO
 CAP_INPUT_ONLY = "input_only"  # GPIO34-39 — read-only (no output/pullup)
 CAP_STRAPPING = "strapping"  # GPIO0/2/5/12/15 — usable with boot-time caveats
+CAP_UART = "uart"            # GPIO1/3 (TX0/RX0) — serial console: logger drives the pin + boot glitches
 CAP_FORBIDDEN = "forbidden"  # GPIO6-11 — wired to the SPI flash, do not use
 
 
@@ -88,8 +89,8 @@ WROOM_DEVKITC_38: list[dict[str, Any]] = [
     _pad("right", 12, 19, "GPIO19", CAP_IO),
     _pad("right", 13, None, "GND", CAP_POWER),
     _pad("right", 14, 21, "GPIO21", CAP_IO),
-    _pad("right", 15, 3, "GPIO3 (RX0)", CAP_IO),
-    _pad("right", 16, 1, "GPIO1 (TX0)", CAP_IO),
+    _pad("right", 15, 3, "GPIO3 (RX0)", CAP_UART),
+    _pad("right", 16, 1, "GPIO1 (TX0)", CAP_UART),
     _pad("right", 17, 22, "GPIO22", CAP_IO),
     _pad("right", 18, 23, "GPIO23", CAP_IO),
     _pad("right", 19, None, "GND", CAP_POWER),

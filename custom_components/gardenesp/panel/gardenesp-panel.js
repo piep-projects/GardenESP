@@ -1558,7 +1558,7 @@ class GardenEspPanel extends HTMLElement {
     const ROW = 24, CHIPX = 300, CHIPW = 140, TOP = 24;
     const CHIPR = CHIPX + CHIPW, H = TOP + 19 * ROW;
     const W = 820, CARDR = 600, CARDL = 8, CARDW = 200;
-    const COL = { io: "#2e7d32", input_only: "#1565c0", strapping: "#ef6c00", forbidden: "#9e9e9e", power: "#546e7a" };
+    const COL = { io: "#2e7d32", input_only: "#1565c0", strapping: "#ef6c00", uart: "#bf360c", forbidden: "#9e9e9e", power: "#546e7a" };
     const pinY = (p) => TOP + (19 - p) * ROW + ROW / 2;
     const trunc = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s || "");
     const pins = d.pins || [];
@@ -1612,7 +1612,7 @@ class GardenEspPanel extends HTMLElement {
     });
 
     // legend
-    const leg = [["io", "frei nutzbar"], ["input_only", "nur Eingang (34–39)"], ["strapping", "Strapping (Vorsicht)"], ["forbidden", "belegt/Flash (6–11)"], ["power", "Power/GND"]];
+    const leg = [["io", "frei nutzbar"], ["input_only", "nur Eingang (34–39)"], ["strapping", "Strapping (Vorsicht)"], ["uart", "UART/Konsole (1·3)"], ["forbidden", "belegt/Flash (6–11)"], ["power", "Power/GND"]];
     let lx = 8; const ly = H + 44;
     let legend = leg.map(([c, t]) => { const s = `<rect x="${lx}" y="${ly - 9}" width="11" height="11" fill="${COL[c]}"/><text x="${lx + 16}" y="${ly}" class="legtxt">${t}</text>`; lx += 30 + t.length * 6.4; return s; }).join("");
 
