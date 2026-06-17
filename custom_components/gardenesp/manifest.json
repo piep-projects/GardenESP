@@ -1,14 +1,14 @@
 {
   "domain": "gardenesp",
   "name": "GardenESP IrrigationController",
-  "version": "0.13.33",
-  "documentation": "https://github.com/piep-projects/GardenESP",
-  "issue_tracker": "https://github.com/piep-projects/GardenESP/issues",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@piep-projects"],
   "config_flow": true,
+  "dependencies": ["http", "frontend", "websocket_api"],
+  "documentation": "https://github.com/piep-projects/GardenESP",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "dependencies": ["http", "frontend", "websocket_api"],
-  "after_dependencies": ["recorder"],
-  "requirements": []
+  "issue_tracker": "https://github.com/piep-projects/GardenESP/issues",
+  "requirements": [],
+  "version": "0.13.33"
 }
