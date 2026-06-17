@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# macOS cruft
+.DS_Store
+._*
+
+# mkdocs build output
+site/
+
+# ESPHome build/work
+.esphome/
+secrets.yaml

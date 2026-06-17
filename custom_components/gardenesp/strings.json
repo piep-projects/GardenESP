@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "GardenESP IrrigationController",
+        "description": "Set up the integration. Boxes, lines, water sources and sensors are managed afterwards in the panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "An instance is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "level": { "name": "Fill level" },
+      "level_pct": { "name": "Fill level %" },
+      "consumption_today": { "name": "Consumption today" },
+      "status": { "name": "Status" },
+      "next_run": { "name": "Next run" },
+      "last_liters": { "name": "Last amount" },
+      "moisture": { "name": "Soil moisture" }
+    },
+    "binary_sensor": {
+      "rain": { "name": "Rain" }
+    }
+  }
+}

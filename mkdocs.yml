@@ -1,0 +1,52 @@
+site_name: GardenESP
+site_description: Home-Assistant-Bewässerungssteuerung auf ESPHome-ESP32-Hardware
+site_url: https://piep-projects.github.io/GardenESP/
+repo_url: https://github.com/piep-projects/GardenESP
+repo_name: piep-projects/GardenESP
+edit_uri: edit/main/docs/
+copyright: MIT © piep-projects
+
+theme:
+  name: material
+  language: de
+  icon:
+    logo: material/sprout
+  palette:
+    - scheme: default
+      primary: green
+      toggle:
+        icon: material/weather-night
+        name: Dunkles Design
+    - scheme: slate
+      primary: green
+      toggle:
+        icon: material/weather-sunny
+        name: Helles Design
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+
+nav:
+  - Start: index.md
+  - Einstieg:
+      - Installation: installation.md
+      - Erste Box & Flash: erste-box.md
+      - Hardware: hardware.md
+  - Bedienung:
+      - Linien & Zeitpläne: linien.md
+      - Wasserquellen: quellen.md
+      - Dashboard: dashboard.md
+  - Hilfe:
+      - Fehlersuche: fehlersuche.md
