@@ -4,75 +4,79 @@
 [![release][release-badge]][release-url]
 [![validate][validate-badge]][validate-url]
 
-**GardenESP** ist eine [Home Assistant](https://www.home-assistant.io/)
-**Custom-Integration** mit eigenem Seitenleisten-Panel zur Steuerung der
-**Gartenbewässerung** auf Basis von **ESPHome**-ESP32-Hardware.
+**Home-Assistant-Integration zur Gartenbewässerung** auf Basis von **ESPHome**-ESP32-Hardware —
+mit eigenem Seitenleisten-Panel und Dashboard-Karte. Mehrere Bewässerungslinien (je ein
+Magnetventil), Wasserquellen (Zisterne mit Füllstand oder Festwasser mit Literzähler), Zeitpläne,
+Regen-/Boden-Sperren und ein **on-device Emergency-Shutdown** als Sicherheitsabschaltung.
 
-Mehrere Bewässerungslinien (je ein Magnetventil), Wasserquellen (Zisterne mit
-Füllstandssensor oder Festwasser mit Literzähler), Zeitpläne, Regen-/Boden-Sperren
-und ein **on-device Emergency-Shutdown** als Sicherheitsabschaltung — zentral in HA
-verwaltet, lauffähig auch ohne WLAN/HA-Verbindung.
-
-> 📖 **Vollständige Dokumentation:** **[piep-projects.github.io/GardenESP][docs-url]**
+> 📖 Ausführliche Doku (optional): **[piep-projects.github.io/GardenESP][docs-url]**
 
 ---
 
-## Funktionen
+## Schnellstart
 
-- **Bewässerungslinien** — je eine Linie = ein Magnetventil; Status, Zeitplan und
-  manueller Start, Live-Restzeit-Countdown.
-- **Wasserquellen** — Regenwasser-Zisterne (Drucksensor, Stützpunkt-Kalibrierung) und
-  Festwasser (Literzähler), je mit Verbrauchsauswertung (Heute/Monat/Jahr …).
-- **Boxen** — beliebig viele ESP-Controller, gemischt: FH-Engineering *GardenControl*
-  oder selbstgebautes *ESP32-WROOM*-Board.
-- **ESPHome-YAML wird generiert** — passend zur gewählten Hardware, direkt aus dem Panel.
-- **Sicherheit** — Emergency-Shutdown am Gerät (unabhängig von WLAN/HA), getrennter
-  Sicherheits-Stopp pro Linie, Firmware-Drift-Erkennung.
-- **Dashboard-Karte** (`custom:gardenesp-card`) — mobile-first, plus Einstellungs-Panel
-  mit Topologie- und Verdrahtungs-Ansicht.
+Vom leeren HA zur ersten laufenden Linie — die sechs Schritte im Überblick.
+
+### 1 · Integration installieren
+
+**HACS** (empfohlen): HACS → **⋮ → Benutzerdefinierte Repositories** → `piep-projects/GardenESP`,
+Kategorie **Integration** → installieren → **Home Assistant neu starten**.
+
+[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=piep-projects&repository=GardenESP&category=integration)
+
+> _Alternativ manuell:_ `custom_components/gardenesp/` nach `config/custom_components/` kopieren und HA neu starten.
+
+### 2 · Integration hinzufügen
+
+**Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**.
+Danach erscheint **GardenESP** in der Seitenleiste (Panel) und die Karte `custom:gardenesp-card` steht bereit.
+
+### 3 · Erste Box anlegen
+
+Panel → Tab **Boxen** → **+ Neu**: Kürzel + Name, **Hardware-Typ** wählen (*GardenControl* oder
+*ESP32-WROOM*), dann **Ausgänge** (Ventile/Pumpen) und **Eingänge** (Regen-/Bodensensor, Füllstand,
+Literzähler) anlegen. Pro Ventil eine sinnvolle **Not-Aus-Zeit** setzen.
+
+### 4 · Firmware flashen
+
+Boxen-Übersicht → **🔒 YAML** zeigt die generierte ESPHome-Konfiguration. In **ESPHome** übernehmen,
+um deine `secrets` (WLAN, API-Key) ergänzen und die Box flashen (erst USB, später OTA).
+
+### 5 · Box in Home Assistant einbinden
+
+ESPHome meldet die geflashte Box → **Einstellungen → Geräte & Dienste** richtet sie ein (API-Key aus
+den ESPHome-Secrets). Erst danach existieren die `switch.*`/`sensor.*`-Entitäten.
+
+> ⚠️ **Flashen ≠ Einbinden** — eine geflashte Box ist erst nutzbar, wenn sie auch als ESPHome-Gerät in
+> HA hinzugefügt wurde. Sind Aus-/Eingänge nicht zugeordnet: Panel → **Allgemein → Entities abgleichen**.
+
+### 6 · Linie anlegen → fertig
+
+Panel → Tab **Linien** → **+ Neu**: Ventil + Quelle wählen, optional Sperr-Sensor und Zeitplan.
+Im **Dashboard** startest du Linien manuell (▶) und siehst Status, Restzeit und Verbrauch.
+
+✅ Das war's. Alles Weitere (Kalibrierung, Steuerungen, Topologie/Verdrahtung, Fehlersuche) steht in der Doku.
+
+---
 
 ## Voraussetzungen
 
-- Home Assistant **2024.6.0** oder neuer
-- [ESPHome](https://esphome.io/) (Add-on oder CLI) zum Flashen der Box
-- Eine unterstützte ESP32-Box → siehe [Hardware][docs-hardware]
+- Home Assistant **2024.6.0+** (Brand-Icon ab **2026.3**), [ESPHome](https://esphome.io/) zum Flashen
+- Eine unterstützte ESP32-Box → [Hardware][docs-hardware] (FH-Engineering GardenControl oder ESP32-WROOM)
 
-## Installation
-
-### Über HACS (empfohlen)
-
-1. HACS → **Integrationen** → ⋮ → **Benutzerdefinierte Repositories**
-2. Repository `piep-projects/GardenESP`, Kategorie **Integration** hinzufügen
-3. **GardenESP** installieren und Home Assistant neu starten
-4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=piep-projects&repository=GardenESP&category=integration)
-
-### Manuell
-
-`custom_components/gardenesp/` in das `config/custom_components/`-Verzeichnis deiner
-HA-Installation kopieren und HA neu starten.
-
-## Erste Schritte
-
-Nach der Installation legst du im **GardenESP-Panel** (Seitenleiste) deine erste Box an,
-generierst das ESPHome-YAML, flasht die Box und bindest sie in HA ein. Der vollständige
-Ablauf inkl. erstem Flash steht in der Doku:
-
-➡️ **[Erste Box & erster Flash][docs-firstbox]**
-
-## Dokumentation
+## Mehr erfahren (optional)
 
 | Thema | |
 |---|---|
-| [Installation][docs-url] | HACS & manuell |
-| [Erste Box & Flash][docs-firstbox] | Onboarding-Schritt für Schritt |
-| [Hardware][docs-hardware] | GardenControl vs. ESP32-WROOM |
-| [Linien & Zeitpläne][docs-url] · [Quellen][docs-url] · [Dashboard][docs-url] · [Fehlersuche][docs-url] | Referenz |
+| [Erste Box & Flash][docs-firstbox] | Ausführlich, mit Feld-Tabellen |
+| [Linien & Zeitpläne][docs-lines] · [Wasserquellen][docs-sources] · [Dashboard][docs-dash] | Bedienung |
+| [Hardware][docs-hardware] · [Fehlersuche][docs-trouble] | Referenz & Hilfe |
+
+In der App führt der **„? Hilfe"-Link** (Panel-Kopfzeile) direkt in diese Doku.
 
 ## Mitwirken / Support
 
-Fehler und Wünsche bitte als [Issue][issues-url]. Pull Requests willkommen.
+Fehler & Wünsche bitte als [Issue][issues-url]. Pull Requests willkommen.
 
 ## Lizenz
 
@@ -87,5 +91,9 @@ MIT © piep-projects
 [validate-url]: https://github.com/piep-projects/GardenESP/actions/workflows/validate.yml
 [docs-url]: https://piep-projects.github.io/GardenESP/
 [docs-firstbox]: https://piep-projects.github.io/GardenESP/erste-box/
+[docs-lines]: https://piep-projects.github.io/GardenESP/linien/
+[docs-sources]: https://piep-projects.github.io/GardenESP/quellen/
+[docs-dash]: https://piep-projects.github.io/GardenESP/dashboard/
 [docs-hardware]: https://piep-projects.github.io/GardenESP/hardware/
+[docs-trouble]: https://piep-projects.github.io/GardenESP/fehlersuche/
 [issues-url]: https://github.com/piep-projects/GardenESP/issues
