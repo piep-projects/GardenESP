@@ -66,7 +66,10 @@ LINE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
         translation_key="last_liters",
         device_class=SensorDeviceClass.WATER,
         native_unit_of_measurement=UnitOfVolume.LITERS,
-        state_class=SensorStateClass.MEASUREMENT,
+        # No state_class: this is the last run's volume (a snapshot that jumps up/down
+        # per run, not monotonic), and HA rejects 'measurement' for device_class water
+        # (expects None/total/total_increasing). None = no long-term statistics, which
+        # is correct here. consumption_today stays total_increasing (cumulative).
     ),
 }
 

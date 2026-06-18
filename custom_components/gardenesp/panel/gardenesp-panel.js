@@ -315,19 +315,24 @@ class GardenEspPanel extends HTMLElement {
     if (hwType === "gardencontrol" && GC_PIN_LABEL[pin]) return GC_PIN_LABEL[pin];
     return String(pin);
   }
-  _usedInputPins(inputs, exceptIdx) {
-    // A physical pin serves at most one input (across kinds — WROOM shares ADC pins).
-    return new Set(
-      (inputs || []).filter((x, j) => j !== exceptIdx).map((x) => String(x.pin)).filter(Boolean)
-    );
+  _usedGpios(d, exceptOut, exceptIn) {
+    // A physical pin serves at most one device. On generic/WROOM boxes outputs
+    // drive a `gpio` and inputs read a `pin` off the *same* GPIO header, so a pin
+    // taken by either must drop out of both dropdowns. (GardenControl outputs go
+    // through the MCP23017 and carry no `gpio`, so they contribute nothing → its
+    // input filtering stays input-only as before.)
+    const used = new Set();
+    (d.outputs || []).forEach((x, j) => { if (j !== exceptOut && x.gpio) used.add(String(x.gpio)); });
+    (d.inputs || []).forEach((x, j) => { if (j !== exceptIn && x.pin) used.add(String(x.pin)); });
+    return used;
   }
   _firstFreeInputPin(hwType, kind) {
-    const used = this._usedInputPins(this._draft.inputs, -1);
+    const used = this._usedGpios(this._draft, -1, -1);
     return this._inputPinPool(hwType, kind).find((p) => !used.has(p)) || "";
   }
   _inputPinOptions(d, inp, i) {
     const pool = this._inputPinPool(d.hw_type, inp.kind);
-    const used = this._usedInputPins(d.inputs, i);
+    const used = this._usedGpios(d, -1, i);
     const opts = [["", "— Pin —"]];
     for (const p of pool) if (!used.has(p) || p === String(inp.pin)) opts.push([p, this._inputPinLabel(p, d.hw_type)]);
     return opts;
@@ -356,9 +361,7 @@ class GardenEspPanel extends HTMLElement {
 
   // --- generic-box output GPIO (free wiring) ---------------------------------
   _outputGpioOptions(d, o, i) {
-    const used = new Set(
-      (d.outputs || []).filter((x, j) => j !== i).map((x) => String(x.gpio)).filter(Boolean)
-    );
+    const used = this._usedGpios(d, i, -1);
     const opts = [["", "— GPIO —"]];
     for (const g of ESP32_DIGITAL) if (!used.has(g) || g === String(o.gpio)) opts.push([g, g]);
     return opts;
@@ -1196,16 +1199,21 @@ class GardenEspPanel extends HTMLElement {
       </div></section>`;
   }
 
+  // Box dropdown options "Kürzel · Name" — Kürzel prefixed like the dashboard chip
+  // and the other ref selections, so the box is unambiguous (FR-D1/§4.1).
+  _boxOptions() {
+    return [["", "— wählen —"], ...Object.values(this._cfg().boxes || {})
+      .map((b) => [b.id, `${b.label ? b.label + " · " : ""}${b.name}`])];
+  }
   _lineForm(d) {
     const cfg = this._cfg();
-    const boxes = Object.values(cfg.boxes || {});
     // Only offer valves of the line's selected box (pick the box first).
     const valveOpts = this._outputRefs("valve", d.box_id);
     const srcOpts = [["", "— ohne Quelle —"], ...Object.values(cfg.sources || {}).map((s) => [s.id, s.name])];
     const senOpts = [["", "— kein Sensor —"], ...this._sensorInputRefs()];
     return (
       field("Name", text("name", d.name)) +
-      field("Box", select("box_id", d.box_id, [["", "— wählen —"], ...boxes.map((b) => [b.id, b.name])])) +
+      field("Box", select("box_id", d.box_id, this._boxOptions())) +
       field("Ventil-Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...valveOpts])) +
       field("Wasserquelle", select("source_id", d.source_id, srcOpts)) +
       field("Automatik", checkbox("automatic", d.automatic)) +
@@ -1224,13 +1232,11 @@ class GardenEspPanel extends HTMLElement {
 
   // Steuerung form (kind=switch): generic on/off output — no source/sensor/consumption.
   _controlForm(d) {
-    const cfg = this._cfg();
-    const boxes = Object.values(cfg.boxes || {});
     // A Steuerung drives an "other"/"pump"-type output (relais/GPIO load).
     const outOpts = this._outputRefs(["other", "pump"], d.box_id);
     return (
       field("Name", text("name", d.name)) +
-      field("Box", select("box_id", d.box_id, [["", "— wählen —"], ...boxes.map((b) => [b.id, b.name])])) +
+      field("Box", select("box_id", d.box_id, this._boxOptions())) +
       field("Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...outOpts]),
         "Ein Box-Ausgang vom Typ „Sonstiges“ oder „Pumpe“ (z. B. Relais für Springbrunnen/Kamera). Im Box-Editor anlegen.") +
       field("Automatik", checkbox("automatic", d.automatic)) +
@@ -1655,13 +1661,15 @@ class GardenEspPanel extends HTMLElement {
     const ref = root.querySelector('[data-act="refresh"]');
     if (ref) ref.onclick = () => this._load();
     const back = root.querySelector('[data-act="back"]');
-    // Return to the dashboard the card recorded on its way here (sessionStorage), which is
-    // reliable; history.back() is not (the panel can also be opened from the sidebar). Fall
-    // back to the default dashboard "/" when nothing was recorded.
+    // Return to the dashboard the card recorded on its way here (sessionStorage:return,
+    // set on an explicit card→settings click — most precise); else the last view the
+    // card was shown on (localStorage:dashboard — covers opening Einstellungen straight
+    // from the sidebar, where no return path was set); else the default dashboard "/".
+    // history.back() is not reliable (the panel can be opened from the sidebar too).
     if (back)
       back.onclick = () => {
         let ret = null;
-        try { ret = sessionStorage.getItem("gardenesp:return"); } catch (e) { /* private mode */ }
+        try { ret = sessionStorage.getItem("gardenesp:return") || localStorage.getItem("gardenesp:dashboard"); } catch (e) { /* private mode */ }
         location.href = ret || "/";
       };
     on("[data-tab]", "onclick", (e) => this._go(e.currentTarget.dataset.tab));
@@ -1745,8 +1753,13 @@ class GardenEspPanel extends HTMLElement {
       const slot = this.shadowRoot.getElementById("root").querySelector("[data-runtimewarn]");
       if (slot) slot.innerHTML = this._runtimeWarning(this._draft);
     }
-    // re-render only when a structural select changed (type/kind/hw_type/repeat/box)
-    if (isChange && /(\.type$|\.kind$|^type$|^kind$|^hw_type$|\.repeat$|^box_id$)/.test(path)) {
+    // re-render only when a structural select changed (type/kind/hw_type/repeat/box).
+    // In the box editor, channel/gpio/label feed the derived Ausgang-ID (A5 =
+    // label+channel) and the sibling channel/GPIO availability + ConnectedDevice
+    // labels — re-render so those don't go stale (all <select>, so no Save-eating).
+    const boxStructural = this._editing && this._editing.kind === "box"
+      && /(\.channel$|\.gpio$|^label$)/.test(path);
+    if (isChange && (/(\.type$|\.kind$|^type$|^kind$|^hw_type$|\.repeat$|^box_id$)/.test(path) || boxStructural)) {
       // a changed output type, input kind or box platform can invalidate the pin pools
       if (this._editing && this._editing.kind === "box" && /(\.type$|\.kind$|^hw_type$)/.test(path)) {
         this._normalizeChannels();

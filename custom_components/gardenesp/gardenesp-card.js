@@ -97,6 +97,12 @@ class GardenEspCard extends HTMLElement {
 
   connectedCallback() {
     this._build();
+    // Remember the view this dashboard lives on so the panel's "← Dashboard" can
+    // return here even when Einstellungen was opened from the sidebar (no card
+    // click sets the per-trip sessionStorage return path). Persisted in
+    // localStorage so it survives across page loads; updated on each view
+    // activation (connect) → last view the card was shown on wins.
+    try { localStorage.setItem("gardenesp:dashboard", location.pathname + location.search); } catch (e) { /* private mode */ }
     if (!this._timer) this._timer = setInterval(() => this._load(), POLL_MS);
     if (!this._tick) this._tick = setInterval(() => this._updateCountdown(), 1000);
   }
