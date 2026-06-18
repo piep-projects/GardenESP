@@ -71,17 +71,16 @@ class BuildTest(unittest.TestCase):
         self.assertFalse(out["supported"])
         self.assertIsNone(out["box"])
 
-    def test_gardencontrol_placeholder(self):
-        out = wiring.build(_config({"id": "g", "hw_type": "gardencontrol"}), "g")
-        self.assertFalse(out["supported"])
-        self.assertEqual(out["box"]["hw_type"], "gardencontrol")
-        self.assertTrue(out["notes"])
-        self.assertEqual(out["pins"], [])
-
     def test_custom_placeholder(self):
         out = wiring.build(_config({"id": "c", "hw_type": "custom_xyz"}), "c")
         self.assertFalse(out["supported"])
+        self.assertIsNone(out["layout"])
         self.assertTrue(out["notes"])
+
+    def test_wroom_layout_flag(self):
+        out = wiring.build(_config(_wroom_box()), "box_w")
+        self.assertEqual(out["layout"], "pinout")
+        self.assertEqual(out["groups"], [])
 
     def test_assignment_on_correct_pad(self):
         box = _wroom_box()
@@ -132,6 +131,88 @@ class BuildTest(unittest.TestCase):
         box = _wroom_box()
         out = wiring.build(_config(box), box["id"])
         self.assertEqual(len(out["devices"]), 5)  # 3 outputs + 2 inputs
+
+
+def _gc_box():
+    return {
+        "id": "box_g",
+        "label": "G",
+        "name": "GardenControl-Box",
+        "hw_type": "gardencontrol",
+        "outputs": [
+            {"id": "o1", "type": "valve", "name": "Tomaten", "channel": "5"},
+            {"id": "o2", "type": "pump", "name": "Eheim Pumpe", "channel": "R1"},
+            {"id": "o3", "type": "other", "name": "Springbrunnen", "channel": "R2"},
+        ],
+        "inputs": [
+            {"id": "i1", "kind": "pressure", "name": "Zisterne Pegel", "pin": "A0"},
+            {"id": "i2", "kind": "rain", "name": "RainClik", "pin": "GPIO14"},
+            {"id": "i3", "kind": "soil_moisture", "name": "Beet", "pin": "GPIO33"},
+        ],
+    }
+
+
+class GardenControlTest(unittest.TestCase):
+    def setUp(self):
+        self.out = wiring.build(_config(_gc_box()), "box_g")
+
+    def _terminals(self):
+        g = self.out["grid"]
+        return {c["label"]: c for col in g.values() for c in col if c["label"]}
+
+    def test_supported_terminal_layout(self):
+        self.assertTrue(self.out["supported"])
+        self.assertEqual(self.out["layout"], "terminals")
+        self.assertEqual(self.out["pins"], [])
+        self.assertTrue(self.out["notes"])
+
+    def test_grid_inventory(self):
+        labels = list(self._terminals())
+        for n in range(1, 13):
+            self.assertIn(f"V{n}", labels)  # board silkscreen: valves are V1–V12
+        for lbl in ("R1", "R2", "IN1", "IN2", "BIN1", "BIN2", "BIN3",
+                    "ADC1", "ADC2", "ADC3", "ADC4", "VCC", "COM", "24VAC", "GND"):
+            self.assertIn(lbl, labels)
+        # the three label rows of the real board
+        g = self.out["grid"]
+        self.assertEqual(len(g["top_upper"]), 12)
+        self.assertEqual(len(g["top_lower"]), 12)
+        self.assertEqual(len(g["bottom"]), 12)
+
+    def test_valve_on_v_terminal_with_short_id(self):
+        t = self._terminals()["V5"]
+        self.assertEqual(t["assignment"]["name"], "Tomaten")
+        self.assertEqual(t["assignment"]["role"], "valve")
+        self.assertEqual(t["assignment"]["short_id"], "G5")  # label G + channel 5
+
+    def test_pump_and_other_on_relais(self):
+        terms = self._terminals()
+        self.assertEqual(terms["R1"]["assignment"]["name"], "Eheim Pumpe")
+        self.assertEqual(terms["R1"]["assignment"]["short_id"], "GR1")
+        self.assertEqual(terms["R2"]["assignment"]["name"], "Springbrunnen")
+
+    def test_inputs_on_terminals_by_pin(self):
+        terms = self._terminals()
+        self.assertEqual(terms["IN1"]["assignment"]["name"], "Zisterne Pegel")  # A0 → IN1
+        self.assertEqual(terms["BIN1"]["assignment"]["name"], "RainClik")       # GPIO14 → BIN1
+        self.assertEqual(terms["ADC2"]["assignment"]["name"], "Beet")           # GPIO33 → ADC2
+        self.assertEqual(terms["IN1"]["assignment"]["role"], "sensor")
+
+    def test_power_terminals_never_assigned(self):
+        terms = self._terminals()
+        for lbl in ("VCC", "COM", "24VAC", "GND", "+24V", "+12V", "+5V"):
+            self.assertTrue(terms[lbl]["power"])
+            self.assertIsNone(terms[lbl]["assignment"])
+
+    def test_unassigned_terminals_empty(self):
+        terms = self._terminals()
+        self.assertIsNone(terms["V1"]["assignment"])
+        self.assertIsNone(terms["IN2"]["assignment"])
+
+    def test_devices_list_only_assigned(self):
+        names = {d["name"] for d in self.out["devices"]}
+        self.assertEqual(names, {"Tomaten", "Eheim Pumpe", "Springbrunnen",
+                                 "Zisterne Pegel", "RainClik", "Beet"})
 
 
 if __name__ == "__main__":

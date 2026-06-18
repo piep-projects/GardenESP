@@ -115,6 +115,16 @@ _INPUT_POOLS = {
     "pulse_meter": [_WROOM_PULSE_PIN],
 }
 
+# GardenControl is a fixed screw-terminal board (no free GPIO): inputs map onto
+# printed terminal labels by their ``pin``. Labels match the FH-Engineering
+# README connection diagrams (IN1/IN2 = 4-20 mA, BIN1-3 = binary 24 V, ADC1-4 =
+# 0-12 V); mirrors ``GC_PIN_LABEL`` in the panel editor.
+_GC_INPUT_TERMINAL = {
+    "A0": "IN1", "A1": "IN2",
+    "GPIO14": "BIN1", "GPIO16": "BIN2", "GPIO17": "BIN3",
+    "GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4",
+}
+
 
 def _output_gpio(output: dict[str, Any], order_idx: list[int]) -> int | None:
     """The GPIO an output drives, mirroring ``esphome_yaml._wroom_output_pin``:
@@ -144,17 +154,26 @@ def _input_gpio(inp: dict[str, Any], order_idx: dict[str, int]) -> int | None:
     return _gpio_num(pool[n]) if n < len(pool) else None
 
 
+def _empty(box_view: dict[str, Any] | None, notes: list[str]) -> dict[str, Any]:
+    """Unsupported/placeholder result with the full (empty) key set."""
+    return {
+        "box": box_view, "supported": False, "layout": None,
+        "pins": [], "groups": [], "devices": [], "gnd_pins": [], "notes": notes,
+    }
+
+
 def build(config: dict[str, Any] | None, box_id: str) -> dict[str, Any]:
     """Return the wiring projection for one box.
 
-    ``{box, supported, pins[], devices[], gnd_pins[], notes[]}`` — ``pins`` is the
-    full board pinout with an ``assignment`` overlaid where a device uses the pad;
-    ``devices`` is the right-hand list (assigned valves/sensors) for the diagram.
+    Always carries ``{box, supported, layout, pins[], groups[], devices[],
+    gnd_pins[], notes[]}``. ``layout`` selects the renderer: ``"pinout"`` (WROOM —
+    a 38-pin header diagram in ``pins``) or ``"terminals"`` (GardenControl — a
+    screw-terminal plan in ``groups``). Read-only projection of the stored config.
     """
     config = config or {}
     box = (config.get("boxes") or {}).get(box_id)
     if not box:
-        return {"box": None, "supported": False, "pins": [], "devices": [], "gnd_pins": [], "notes": []}
+        return _empty(None, [])
 
     box_view = {
         "id": box_id,
@@ -163,14 +182,15 @@ def build(config: dict[str, Any] | None, box_id: str) -> dict[str, Any]:
         "hw_type": box.get("hw_type") or "",
     }
 
-    if box.get("hw_type") != HW_WROOM:
-        note = (
-            "Für GardenControl folgt ein Klemmenplan (Schraubklemmen CH1–12 / R1·R2 + Eingänge)."
-            if box.get("hw_type") == HW_GARDENCONTROL
-            else "Verdrahtungsdiagramm aktuell nur für ESP32-WROOM verfügbar."
-        )
-        return {"box": box_view, "supported": False, "pins": [], "devices": [], "gnd_pins": [], "notes": [note]}
+    if box.get("hw_type") == HW_WROOM:
+        return _build_wroom(box, box_view)
+    if box.get("hw_type") == HW_GARDENCONTROL:
+        return _build_gardencontrol(box, box_view)
+    return _empty(box_view, ["Verdrahtungsdiagramm aktuell nur für ESP32-WROOM und GardenControl verfügbar."])
 
+
+def _build_wroom(box: dict[str, Any], box_view: dict[str, Any]) -> dict[str, Any]:
+    """ESP32-WROOM-32 DevKitC: 38-pin header diagram (``layout="pinout"``)."""
     # Build the GPIO → device assignment map (and the right-hand device list).
     assign: dict[int, dict[str, Any]] = {}
     devices: list[dict[str, Any]] = []
@@ -219,4 +239,82 @@ def build(config: dict[str, Any] | None, box_id: str) -> dict[str, Any]:
         "Ventile/Pumpen laufen über Relais/24 VAC — hier ist nur die Steuerleitung (GPIO) gezeigt.",
         "Diagramm ist eine Verdrahtungs-Hilfe (Vorschlag), kein Abbild der konkreten Platine.",
     ]
-    return {"box": box_view, "supported": True, "pins": pins, "devices": devices, "gnd_pins": gnd_pins, "notes": notes}
+    return {
+        "box": box_view, "supported": True, "layout": "pinout",
+        "pins": pins, "groups": [], "devices": devices, "gnd_pins": gnd_pins, "notes": notes,
+    }
+
+
+def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[str, Any]:
+    """GardenControl: fixed screw-terminal plan (``layout="terminals"``).
+
+    Outputs land on ``CH1–12`` (valves) / ``Relais1·2`` (pumps & ``other``) by
+    ``channel``; inputs on ``IN1/2`` · ``BIN1-3`` · ``ADC1-4`` by ``pin``
+    (``_GC_INPUT_TERMINAL``). Labels follow the FH-Engineering README diagrams.
+    """
+    label = box_view["label"]
+    # Outputs → board silkscreen terminal: valves on V1–V12, pumps/other on R1/R2.
+    out_by_term: dict[str, dict[str, Any]] = {}
+    for o in box.get("outputs") or []:
+        ch = str(o.get("channel") or "").strip()
+        if ch.upper() in ("R1", "R2"):
+            term = ch.upper()
+        elif ch.isdigit():
+            term = "V" + ch
+        else:
+            continue
+        out_by_term.setdefault(term, {
+            "name": (o.get("name") or "").strip() or o.get("id"),
+            "role": o.get("type") or "output",
+            "kind": "output",
+            "short_id": f"{label}{ch}" if label and ch else "",  # Ausgang-ID A5 (FDS §3)
+        })
+    in_by_term: dict[str, dict[str, Any]] = {}
+    for i in box.get("inputs") or []:
+        term = _GC_INPUT_TERMINAL.get(str(i.get("pin") or "").strip().upper())
+        if not term:
+            continue
+        in_by_term.setdefault(term, {
+            "name": (i.get("name") or "").strip() or i.get("id"),
+            "role": "sensor",
+            "kind": i.get("kind") or "input",
+            "short_id": "",
+        })
+
+    def _c(lbl: str, fn: str, power: bool = False) -> dict[str, Any]:
+        """One terminal cell; power pads carry no assignment, blanks have empty label."""
+        a = None if (power or not lbl) else (out_by_term.get(lbl) or in_by_term.get(lbl))
+        return {"label": lbl, "fn": fn, "power": power, "assignment": a}
+
+    # Exact board grid (photo silkscreen). Two stacked terminal rows on the TOP edge
+    # (each split into a left + right 6-way block) and one valve row on the BOTTOM.
+    grid = {
+        "top_upper": [
+            _c("IN1", "4-20 mA Signal 1"), _c("VCC", "Sensor-Versorgung", True),
+            _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung", True),
+            _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
+            _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
+            _c("R1", "Relais 1 (230 V)"), _c("R2", "Relais 2 (230 V)"),
+            _c("24VAC", "Versorgung 24 VAC", True), _c("24VAC", "Versorgung 24 VAC", True),
+        ],
+        "top_lower": [
+            _c("VCC", "Sensor-Versorgung", True), _c("BIN1", "Binär 24 V (Regen/S0/Schalter)"),
+            _c("BIN2", "Binär 24 V (Regen/S0/Schalter)"), _c("BIN3", "Binär 24 V (Regen/S0/Schalter)"),
+            _c("+24V", "Sensor-Versorgung", True), _c("+12V", "Sensor-Versorgung", True),
+            _c("+5V", "Sensor-Versorgung", True), _c("ADC1", "Analog 0–12 V"),
+            _c("ADC2", "Analog 0–12 V"), _c("ADC3", "Analog 0–12 V"),
+            _c("ADC4", "Analog 0–12 V"), _c("GND", "Masse", True),
+        ],
+        "bottom": [_c(f"V{n}", f"Ventil {n} (24 VAC)") for n in range(1, 13)],
+    }
+    devices = [c["assignment"] for col in grid.values() for c in col if c["assignment"]]
+    notes = [
+        "Klemmenplan nach dem echten GardenControl-Board (Silkscreen-Labels).",
+        "Unten V1–V12 = Ventil-Ausgänge (24 VAC, gemeinsamer COM); R1/R2 = Relais für 230-V-Geräte (z. B. Pumpen).",
+        "Oben links IN1/IN2 = 4-20-mA-Sensoren (eigene 24-V-Versorgung), BIN1–3 = Binär 24 V, ADC1–4 = 0–12 V.",
+        "Versorgung: 24-VAC-Trafo (≥ 3 A); externe 3-A-Sicherung ist Pflicht. Schematische Belegungshilfe.",
+    ]
+    return {
+        "box": box_view, "supported": True, "layout": "terminals",
+        "pins": [], "grid": grid, "groups": [], "devices": devices, "gnd_pins": [], "notes": notes,
+    }
