@@ -885,12 +885,16 @@ class GardenEspPanel extends HTMLElement {
     const letter = box.label || "?";
     return out && out.channel ? `${letter}${out.channel}` : letter;
   }
-  // Box-scoped line short id L<n> — stable, server-assigned (ln.seq, FDS §3).
+  // Box-scoped line short id <Box>-L<n> — stable, server-assigned (ln.seq, FDS §3).
+  // The box letter prefix disambiguates identical L-numbers across boxes (A-L1 vs B-L1).
   // Steuerungen (kind=switch) carry no L-number → show their output id (A5).
   _lineId(cfg, ln) {
     if (!ln) return "—";
     if (ln.kind === "switch") return this._valveLabel(cfg, ln);
-    return ln.seq ? `L${ln.seq}` : "L?";
+    if (!ln.seq) return "L?";
+    const box = (cfg.boxes || {})[ln.box_id];
+    const letter = box && box.label ? box.label : "?";
+    return `${letter}-L${ln.seq}`;
   }
   // Compact "Automatik" state chip (green on / red off) — like the box Not-Aus chip.
   _autoChip(ln) {

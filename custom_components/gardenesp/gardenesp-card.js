@@ -174,12 +174,16 @@ class GardenEspCard extends HTMLElement {
   _valveLabel(cfg, ln) {
     return this._refLabel(cfg, ln.valve_output);
   }
-  // Box-scoped line short id L<n> — stable, server-assigned (ln.seq, FDS §3).
+  // Box-scoped line short id <Box>-L<n> — stable, server-assigned (ln.seq, FDS §3).
+  // The box letter prefix disambiguates identical L-numbers across boxes (A-L1 vs B-L1).
   // Steuerungen (kind=switch) carry no L-number → show their output id (A5).
   _lineId(cfg, ln) {
     if (!ln) return "—";
     if (ln.kind === "switch") return this._valveLabel(cfg, ln);
-    return ln.seq ? `L${ln.seq}` : "L?";
+    if (!ln.seq) return "L?";
+    const box = (cfg.boxes || {})[ln.box_id];
+    const letter = box && box.label ? box.label : "?";
+    return `${letter}-L${ln.seq}`;
   }
   _isBoxDisabled(cfg, boxId) {
     const box = (cfg.boxes || {})[boxId];
