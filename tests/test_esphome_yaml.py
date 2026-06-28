@@ -70,7 +70,7 @@ class TestAsciiFold(unittest.TestCase):
 
 
 class TestGardenControl(unittest.TestCase):
-    """GardenControl = fixed board template (matches the FH-Engineering firmware)."""
+    """GardenControl = fixed board template (matches the Smart-MF firmware)."""
 
     def test_board_skeleton(self):
         yaml = gen.generate_box_yaml(_box())
@@ -144,6 +144,20 @@ class TestGardenControl(unittest.TestCase):
         yaml = gen.generate_box_yaml(box)
         self.assertIn('name: "RainClik"', yaml)
         self.assertNotIn("set_pulse_total", yaml)  # no S0 → no service
+
+    def test_button_input_is_named_binary_sensor_not_inverted(self):
+        # FR-S14: a generic button on a BIN pin → plain binary_sensor with the
+        # given name, not forced-inverted like rain, no S0 service.
+        box = _box(inputs=[{"id": "i1", "kind": "button", "name": "Taster Terrasse", "pin": "GPIO16"}])
+        yaml = gen.generate_box_yaml(box)
+        self.assertIn('name: "Taster Terrasse"', yaml)
+        self.assertIn("number: GPIO16, inverted: false", yaml)
+        self.assertNotIn("platform: pulse_counter", yaml)
+        self.assertNotIn("set_pulse_total", yaml)
+
+    def test_button_inverted_flag_inverts_the_pin(self):
+        box = _box(inputs=[{"id": "i1", "kind": "button", "name": "Taster", "pin": "GPIO16", "inverted": True}])
+        self.assertIn("number: GPIO16, inverted: true", gen.generate_box_yaml(box))
 
     def test_emergency_shutdown_on_gc_valve(self):
         box = _box(outputs=[{"id": "v1", "type": "valve", "name": "Beeren", "channel": "1", "emergency_shutdown_min": 15}])
@@ -225,6 +239,22 @@ class TestEsp32Wroom(unittest.TestCase):
     def test_rain_inverted_flag_inverts_the_pin(self):
         box = _box(hw_type="esp32_wroom",
                    inputs=[{"id": "i1", "kind": "rain", "name": "Regen", "inverted": True}])
+        self.assertIn("inverted: true", gen.generate_box_yaml(box))
+
+    def test_button_is_plain_binary_sensor_without_device_class(self):
+        # FR-S14: generic binary input → binary_sensor, named, no block device_class.
+        box = _box(hw_type="esp32_wroom",
+                   inputs=[{"id": "i1", "kind": "button", "name": "Klingel", "pin": "GPIO18"}])
+        yaml = gen.generate_box_yaml(box)
+        self.assertIn("binary_sensor:", yaml)
+        self.assertIn('name: "Klingel"', yaml)
+        self.assertIn("number: GPIO18", yaml)
+        self.assertNotIn("device_class: moisture", yaml)
+        self.assertNotIn("inverted: true", yaml)  # default polarity
+
+    def test_button_inverted_flag_inverts_the_pin_wroom(self):
+        box = _box(hw_type="esp32_wroom",
+                   inputs=[{"id": "i1", "kind": "button", "name": "Klingel", "pin": "GPIO18", "inverted": True}])
         self.assertIn("inverted: true", gen.generate_box_yaml(box))
 
 

@@ -61,6 +61,10 @@ INPUT_PRESSURE: Final = "pressure"
 INPUT_SOIL_MOISTURE: Final = "soil_moisture"
 INPUT_RAIN: Final = "rain"
 INPUT_PULSE_METER: Final = "pulse_meter"
+# Generic binary input (Taster / Schalter / Kontakt) — exposed as a plain HA
+# binary_sensor, no GardenESP block semantics; use it in HA automations / the
+# gardenesp.start_line service (FR-S14).
+INPUT_BUTTON: Final = "button"
 
 SOURCE_CISTERN: Final = "cistern"
 SOURCE_MAINS: Final = "mains"

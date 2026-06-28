@@ -23,5 +23,35 @@
     "binary_sensor": {
       "rain": { "name": "Regen" }
     }
+  },
+  "services": {
+    "start_line": {
+      "name": "Linie starten",
+      "description": "Startet eine Bewässerungslinie über den vollständigen Coordinator-Pfad (Quellen-Lock, Gates, Verbrauchs-Logging, Nachlauf). Ermöglicht externen Automationen, die Bewässerung mit eigener Logik zu steuern, statt den rohen Ventil-Schalter zu schalten.",
+      "fields": {
+        "line_id": {
+          "name": "Linien-ID",
+          "description": "ID der zu startenden Linie (z. B. ln_ff3a7f58). Wird in der GardenESP-Linienliste im Panel angezeigt."
+        },
+        "duration_min": {
+          "name": "Dauer (min)",
+          "description": "Laufdauer in Minuten; Nachkommastellen erlaubt (0,3 = 18 s). Leer lassen für die manuelle Standarddauer der Linie."
+        },
+        "force": {
+          "name": "Erzwingen",
+          "description": "Den Sperr-Sensor der Linie (Regen/Bodenfeuchte) für diesen Lauf ignorieren, wie 'Start trotzdem' im Dashboard."
+        }
+      }
+    },
+    "stop_line": {
+      "name": "Linie stoppen",
+      "description": "Stoppt einen laufenden Bewässerungslauf und protokolliert die gewässerte Menge.",
+      "fields": {
+        "line_id": {
+          "name": "Linien-ID",
+          "description": "ID der zu stoppenden Linie (z. B. ln_ff3a7f58). Wird in der GardenESP-Linienliste im Panel angezeigt."
+        }
+      }
+    }
   }
 }

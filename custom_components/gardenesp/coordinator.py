@@ -40,6 +40,7 @@ from . import calc, drift, esphome_yaml, gates, ids, state
 from .const import (
     DOMAIN,
     HISTORY_DEFAULT_MONTHS,
+    INPUT_BUTTON,
     INPUT_PULSE_METER,
     LINE_KIND_SWITCH,
     INPUT_RAIN,
@@ -301,7 +302,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
                 o.entity = eid
                 resolved += 1
         for inp in box.inputs:
-            dom = "binary_sensor" if inp.kind == INPUT_RAIN else "sensor"
+            dom = "binary_sensor" if inp.kind in (INPUT_RAIN, INPUT_BUTTON) else "sensor"
             # A pulse_meter emits a rate sensor (= input name) *and* a cumulative
             # "… total" sub-sensor. Consumption needs the cumulative one, so resolve
             # pulse_meter inputs to the "… total" entity, not the rate (CR-0004).

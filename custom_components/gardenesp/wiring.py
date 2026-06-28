@@ -113,10 +113,11 @@ _INPUT_POOLS = {
     "soil_moisture": _WROOM_ADC_PINS,
     "rain": _WROOM_BINARY_PINS,
     "pulse_meter": [_WROOM_PULSE_PIN],
+    "button": _WROOM_BINARY_PINS,  # generic Taster/Schalter (FR-S14)
 }
 
 # GardenControl is a fixed screw-terminal board (no free GPIO): inputs map onto
-# printed terminal labels by their ``pin``. Labels match the FH-Engineering
+# printed terminal labels by their ``pin``. Labels match the Smart-MF
 # README connection diagrams (IN1/IN2 = 4-20 mA, BIN1-3 = binary 24 V, ADC1-4 =
 # 0-12 V); mirrors ``GC_PIN_LABEL`` in the panel editor.
 _GC_INPUT_TERMINAL = {
@@ -250,7 +251,7 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
 
     Outputs land on ``CH1–12`` (valves) / ``Relais1·2`` (pumps & ``other``) by
     ``channel``; inputs on ``IN1/2`` · ``BIN1-3`` · ``ADC1-4`` by ``pin``
-    (``_GC_INPUT_TERMINAL``). Labels follow the FH-Engineering README diagrams.
+    (``_GC_INPUT_TERMINAL``). Labels follow the Smart-MF README diagrams.
     """
     label = box_view["label"]
     # Outputs → board silkscreen terminal: valves on V1–V12, pumps/other on R1/R2.

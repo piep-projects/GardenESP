@@ -33,6 +33,7 @@ from .const import (
 )
 from .coordinator import GardenESPCoordinator
 from .entity import box_device_info
+from .services import async_register_services, async_unregister_services
 from .websocket_api import async_register as async_register_ws
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     async_register_ws(hass)
+    async_register_services(hass)
     version = await hass.async_add_executor_job(_version)
     await _async_register_panel(hass, version)
     await _async_register_card(hass, version)
@@ -108,6 +110,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove the sidebar panel once the last GardenESP entry is gone (the static
     path can't be unregistered, so the panel is the only frontend cleanup)."""
     if not hass.data.get(DOMAIN):
+        async_unregister_services(hass)
         frontend.async_remove_panel(hass, PANEL_URL_PATH)
 
 

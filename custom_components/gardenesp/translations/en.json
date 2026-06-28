@@ -23,5 +23,35 @@
     "binary_sensor": {
       "rain": { "name": "Rain" }
     }
+  },
+  "services": {
+    "start_line": {
+      "name": "Start line",
+      "description": "Starts an irrigation line through the full coordinator path (source lock, gates, consumption logging, settling). Lets external automations drive irrigation with their own logic instead of toggling the raw valve switch.",
+      "fields": {
+        "line_id": {
+          "name": "Line ID",
+          "description": "ID of the line to start (e.g. ln_ff3a7f58). Shown in the GardenESP panel line list."
+        },
+        "duration_min": {
+          "name": "Duration (min)",
+          "description": "Run duration in minutes; fractional allowed (0.3 = 18 s). Omit to use the line's manual default."
+        },
+        "force": {
+          "name": "Force",
+          "description": "Ignore the line's blocking sensor (rain/soil) for this run, like 'Start anyway' in the dashboard."
+        }
+      }
+    },
+    "stop_line": {
+      "name": "Stop line",
+      "description": "Stops a running irrigation line, logging the watered portion.",
+      "fields": {
+        "line_id": {
+          "name": "Line ID",
+          "description": "ID of the line to stop (e.g. ln_ff3a7f58). Shown in the GardenESP panel line list."
+        }
+      }
+    }
   }
 }

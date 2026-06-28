@@ -35,6 +35,7 @@ const INPUT_KIND = {
   soil_moisture: "Bodenfeuchte",
   rain: "Regensensor",
   pulse_meter: "Literzähler",
+  button: "Taster / Schalter",
 };
 const BOX_LABELS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A…Z
 // Channel inventory per hw_type (drives the A5 id + the ESPHome pin, FDS §4.1/§5.4):
@@ -62,12 +63,14 @@ const INPUT_PINS = {
     soil_moisture: ["GPIO32", "GPIO33", "GPIO34", "GPIO35"], // 4× ADC 0-12 V
     rain: ["GPIO14", "GPIO16", "GPIO17"], // 3 binary inputs (BIN1-3), shared with S0
     pulse_meter: ["GPIO14", "GPIO16", "GPIO17"],
+    button: ["GPIO14", "GPIO16", "GPIO17"], // same 3 binary inputs (BIN1-3)
   },
   generic: {
     pressure: [...ESP32_ADC, ...ADS_CHANNELS],
     soil_moisture: ESP32_ADC,
     rain: ESP32_DIGITAL,
     pulse_meter: ESP32_DIGITAL,
+    button: ESP32_DIGITAL,
   },
 };
 // Keys MUST match schedule.py WEEKDAY_KEYS (mo..su) or weekly never fires.
@@ -690,6 +693,7 @@ class GardenEspPanel extends HTMLElement {
             <div class="sub">${box ? esc(box.name) : "keine Box"} · ${src ? esc(src.name) : "ohne Quelle"}</div>
             <div class="schedchips">${this._scheduleChips(ln)}</div>
             ${this._stamps(ln)}
+            ${this._idLine(ln.id)}
             ${this._consumptionSummary((e) => e.line_id === ln.id)}</div>
             ${this._autoToggle(ln)}
             <button class="btn" data-editline="${esc(ln.id)}">Bearbeiten</button></div>`;
@@ -715,7 +719,8 @@ class GardenEspPanel extends HTMLElement {
             <div class="sub">${box ? esc(box.name) : "keine Box"} · ${out ? esc(out) : "kein Ausgang"}</div>
             ${this._controlEntity(ln)}
             <div class="schedchips">${this._scheduleChips(ln)}</div>
-            ${this._stamps(ln)}</div>
+            ${this._stamps(ln)}
+            ${this._idLine(ln.id)}</div>
             ${this._autoToggle(ln)}
             <button class="btn" data-editcontrol="${esc(ln.id)}">Bearbeiten</button></div>`;
         }).join("")
@@ -797,6 +802,11 @@ class GardenEspPanel extends HTMLElement {
     if (!o.created_at && !o.updated_at) return "";
     return `<div class="boxstamp">Erstellt: ${esc(this._fmtStamp(o.created_at))}` +
       ` · Letzte Änderung: ${esc(this._fmtStamp(o.updated_at))}</div>`;
+  }
+  // Raw storage id — needed for the gardenesp.start_line / stop_line services
+  // (own irrigation logic from HA automations, FR-X3b).
+  _idLine(id) {
+    return `<div class="objid">ID (für Dienst): <code>${esc(id)}</code></div>`;
   }
   // Consumption period-sums (liters) from the history — same buckets as the Card
   // detail view (Heute · Monat · Vormonat · Jahr · Vorjahr); shown under the stamps
@@ -1087,6 +1097,7 @@ class GardenEspPanel extends HTMLElement {
     let param = "";
     if (inp.kind === "rain") param = inp.inverted ? "Schließer (NO)" : "Öffner (NC)";
     else if (inp.kind === "soil_moisture") param = `Schwelle ${inp.threshold_pct || 0} %`;
+    else if (inp.kind === "button" && inp.inverted) param = "invertiert";
     return `<div class="devrow">
       <span class="chip">${esc(this._inputPinLabel(inp.pin, b.hw_type))}</span>
       <span class="dname">${esc(inp.name || inp.id)}</span>
@@ -1112,6 +1123,10 @@ class GardenEspPanel extends HTMLElement {
     if (inp.kind === "rain") {
       const wet = st.state === "on";
       return `<span class="live ${wet ? "wet" : ""}" title="aktueller Wert">${wet ? "nass" : "trocken"}</span>`;
+    }
+    if (inp.kind === "button") {
+      const on = st.state === "on";
+      return `<span class="live ${on ? "on" : "off"}" title="aktueller Wert">${on ? "● an" : "○ aus"}</span>`;
     }
     const unit = (st.attributes && st.attributes.unit_of_measurement) || "";
     const num = parseFloat(st.state);
@@ -1431,6 +1446,9 @@ class GardenEspPanel extends HTMLElement {
           extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "Schließer (NO)", "Öffner (NC) · RainClik");
         else if (inp.kind === "soil_moisture")
           extra = numInline(`inputs.${i}.threshold_pct`, inp.threshold_pct, "Schwelle %");
+        else if (inp.kind === "button")
+          // generic binary input (FR-S14): polarity only, no block semantics
+          extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "invertiert (Ruhe = an)", "normal (Ruhe = aus)");
         else
           extra = `<select disabled title="kein Parameter"><option>—</option></select>`;
         return `<div class="subrow inrow">
@@ -2154,6 +2172,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
   word-break: break-all; }
 .devrow .chip.estop { background: rgba(244, 67, 54, .14); color: var(--error-color, #c62828); }
 .boxstamp { color: var(--secondary-text-color); font-size: 11px; margin-top: 1px; }
+.objid { color: var(--secondary-text-color); font-size: 11px; margin-top: 1px; }
+.objid code { font-family: var(--code-font-family, monospace); user-select: all; }
 /* consumption period-sums under the stamps (Quellen/Linien overview) */
 .consum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 4px; font-size: 12px; }
 .consum .chead { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;

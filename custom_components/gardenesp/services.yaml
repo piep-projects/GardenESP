@@ -1,0 +1,30 @@
+start_line:
+  fields:
+    line_id:
+      required: true
+      example: ln_ff3a7f58
+      selector:
+        text:
+    duration_min:
+      required: false
+      example: 5
+      selector:
+        number:
+          min: 0
+          max: 1440
+          step: 0.5
+          unit_of_measurement: min
+          mode: box
+    force:
+      required: false
+      default: false
+      selector:
+        boolean:
+
+stop_line:
+  fields:
+    line_id:
+      required: true
+      example: ln_ff3a7f58
+      selector:
+        text:

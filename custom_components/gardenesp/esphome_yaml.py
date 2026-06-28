@@ -43,6 +43,7 @@ INPUT_PRESSURE = "pressure"
 INPUT_SOIL_MOISTURE = "soil_moisture"
 INPUT_RAIN = "rain"
 INPUT_PULSE_METER = "pulse_meter"
+INPUT_BUTTON = "button"  # generic binary input (Taster / Schalter) — FR-S14
 
 # Pulse counters (CR-0001): the PCNT hardware glitch filter caps internal_filter
 # at ~13 µs (1023 APB cycles @ 80 MHz), which the default already uses. Real meter
@@ -490,6 +491,9 @@ def _sensors(box: dict[str, Any], hw: str) -> list[str]:
         elif kind == INPUT_RAIN:
             lines, pin = _rain_sensor(inp, sid, name, hw, idx)
             binary += lines
+        elif kind == INPUT_BUTTON:
+            lines, pin = _button_sensor(inp, sid, name, hw, idx)
+            binary += lines
         else:
             continue
         if pin in used:
@@ -601,7 +605,34 @@ def _rain_sensor(
     )
 
 
-# --- GardenControl: full board-accurate template (matches FH-Engineering fw) --
+def _button_sensor(
+    inp: dict[str, Any], sid: str, name: str, hw: str, idx: dict[str, int]
+) -> tuple[list[str], str]:
+    # Generic binary input (Taster / Schalter / Kontakt, FR-S14): a plain
+    # binary_sensor with no device_class / block semantics — just a named HA
+    # entity to use in automations. `inverted` (default false) honours the
+    # wiring (pull-up to GND → pressed reads on when inverted).
+    pool = _GC_BINARY_PINS if hw == HW_GARDENCONTROL else _WROOM_BINARY_PINS
+    pin = _resolve_pin(inp, pool, idx, "binary", strict=hw == HW_GARDENCONTROL)
+    inv = ["      inverted: true"] if inp.get("inverted") else []
+    return (
+        [
+            "  - platform: gpio",
+            f"    id: {sid}",
+            f'    name: "{name}"',
+            "    pin:",
+            f"      number: {pin}",
+            *inv,
+            "      mode:",
+            "        input: true",
+            "        pullup: true",
+            "    filters: [ { delayed_on: 10ms } ]",
+        ],
+        pin,
+    )
+
+
+# --- GardenControl: full board-accurate template (matches Smart-MF fw) --
 # Valve LED on PCF8575: Ventil_1→#15 … Ventil_12→#4, Relais_1→#3, Relais_2→#2.
 def _gc_maps(box: dict[str, Any]) -> dict[str, Any]:
     valves: dict[int, dict] = {}
@@ -804,10 +835,14 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
     if binary_pins:
         L += ["", "# ─── Binary inputs (rain / switch) ──────────────────────────────────────", "binary_sensor:"]
         for pin in binary_pins:
-            nm = ascii_fold((inputs.get(pin) or {}).get("name") or bin_label[pin])
+            ip = inputs.get(pin) or {}
+            nm = ascii_fold(ip.get("name") or bin_label[pin])
+            # Rain reads on=wet via a forced pin inversion (FP-0001); a generic
+            # button (FR-S14) honours its own `inverted` flag (default false).
+            inv = "true" if ip.get("inverted") else "false" if ip.get("kind") == INPUT_BUTTON else "true"
             L += [
                 "  - platform: gpio",
-                f"    pin: {{ number: {pin}, inverted: true }}",
+                f"    pin: {{ number: {pin}, inverted: {inv} }}",
                 f'    name: "{nm}"',
                 "    filters: [ { delayed_on: 10ms } ]",
             ]

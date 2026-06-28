@@ -42,10 +42,10 @@ class Input:
     """A sensor input — FDS §4.1 ``inputs``."""
 
     id: str
-    kind: str  # INPUT_PRESSURE | INPUT_SOIL_MOISTURE | INPUT_RAIN | INPUT_PULSE_METER
+    kind: str  # INPUT_PRESSURE | INPUT_SOIL_MOISTURE | INPUT_RAIN | INPUT_PULSE_METER | INPUT_BUTTON
     name: str
     pin: str = ""  # physical pin / ADS channel — drives the ESPHome pin (FDS §4.1)
-    inverted: bool = False  # (rain) NO/NC wiring — blocking-sensor param
+    inverted: bool = False  # (rain/button) NO/NC wiring — pin inversion at the ESPHome pin
     threshold_pct: int = 0  # (soil) ab hier „feucht genug" → Sperre
     entity: str | None = None  # ESPHome sensor.*/binary_sensor.* entity_id
     calibration: dict[str, Any] = field(default_factory=dict)
