@@ -3,7 +3,7 @@
 GardenESP unterstützt pro Box zwei Plattformen, gewählt über `hw_type`. Der Typ bestimmt
 das ESPHome-YAML-Template.
 
-## FH-Engineering GardenControl
+## Smart-MF GardenControl
 
 ESP32 + MCP23017-I/O-Expander, 12× 24-VAC-Magnetventil-Ausgänge, 2× 230-V-Relais
 (Pumpen), PCF8575-Status-LEDs, ADS1115 (4-20-mA-Eingänge). Board-genaues, festes Template.

@@ -62,7 +62,7 @@ Im **Dashboard** startest du Linien manuell (▶) und siehst Status, Restzeit un
 ## Voraussetzungen
 
 - Home Assistant **2024.6.0+** (Brand-Icon ab **2026.3**), [ESPHome](https://esphome.io/) zum Flashen
-- Eine unterstützte ESP32-Box → [Hardware][docs-hardware] (FH-Engineering GardenControl oder ESP32-WROOM)
+- Eine unterstützte ESP32-Box → [Hardware][docs-hardware] (Smart-MF GardenControl oder ESP32-WROOM)
 
 ## Mehr erfahren (optional)
 
