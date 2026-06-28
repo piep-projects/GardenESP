@@ -43,6 +43,7 @@ nav:
   - Einstieg:
       - Installation: installation.md
       - Erste Box & Flash: erste-box.md
+      - ESPHome flashen & einbinden: esphome.md
       - Hardware: hardware.md
   - Bedienung:
       - Linien & Zeitpläne: linien.md

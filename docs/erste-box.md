@@ -55,10 +55,11 @@ Kanal (CH1–12 / R1–R2) aus einer Liste; bei WROOM den **GPIO**.
 
 ## 3. ESPHome-YAML generieren & flashen
 
-1. Boxen-Übersicht → **🔒 YAML** zeigt die generierte ESPHome-Konfiguration (Admin).
-2. YAML in deine **ESPHome**-Installation (Add-on/CLI) übernehmen und um die nötigen
-   `secrets` (WLAN-SSID/Passwort, API-Key, OTA) ergänzen.
-3. Box **flashen** — beim ersten Mal per USB, danach OTA über WLAN.
+In der Boxen-Übersicht zeigt **🔒 YAML** die generierte ESPHome-Konfiguration (Admin).
+Diese übernimmst du in ESPHome, ergänzt einmalig deine **Secrets** (WLAN, API-Schlüssel,
+OTA) und **flashst** die Box — beim ersten Mal per USB, danach drahtlos.
+
+➡️ **Schritt für Schritt (einsteigerfreundlich):** [ESPHome: Secrets, Flashen & Einbinden](esphome.md)
 
 !!! note "Firmware-Drift"
     Das generierte YAML trägt einen Konfig-Hash. Ändert sich die Box-Konfiguration
@@ -67,9 +68,10 @@ Kanal (CH1–12 / R1–R2) aus einer Liste; bei WROOM den **GPIO**.
 
 ## 4. Box in Home Assistant einbinden
 
-1. ESPHome meldet die geflashte Box → **Einstellungen → Geräte & Dienste** zeigt sie
-   zur Einrichtung an (du brauchst den **API-Key** aus deinen ESPHome-Secrets).
-2. Nach dem Hinzufügen existieren die `switch.*`/`sensor.*`-Entitäten der Box.
+Nach dem Flashen **entdeckt HA die Box automatisch** (Einstellungen → Geräte & Dienste);
+beim Einrichten gibst du den **API-Verschlüsselungsschlüssel** aus deinen Secrets ein.
+Danach existieren die `switch.*`/`sensor.*`-Entitäten der Box. Ausführlich in der
+[ESPHome-Anleitung](esphome.md#6-box-in-home-assistant-einbinden).
 
 !!! warning "Flashen ≠ Einbinden"
     Eine geflashte Box ist erst nutzbar, wenn sie auch als **ESPHome-Gerät in HA**
