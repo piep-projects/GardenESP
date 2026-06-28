@@ -48,5 +48,6 @@ nav:
       - Linien & Zeitpläne: linien.md
       - Wasserquellen: quellen.md
       - Dashboard: dashboard.md
+      - Automationen & Dienste: automationen.md
   - Hilfe:
       - Fehlersuche: fehlersuche.md

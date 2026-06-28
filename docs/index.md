@@ -12,6 +12,8 @@ zur Steuerung der Gartenbewässerung auf Basis von **ESPHome**-ESP32-Hardware.
 - **Boxen** — mehrere ESP-Controller, gemischt (GardenControl oder ESP32-WROOM).
 - **ESPHome-YAML wird generiert** — passend zur Hardware, direkt aus dem Panel.
 - **Emergency-Shutdown am Gerät** — Sicherheitsabschaltung unabhängig von WLAN/HA.
+- **Automatisierbar** — Linien aus HA-Automationen steuern (Dienste `gardenesp.start_line` /
+  `stop_line`) und Binäreingänge als Taster nutzen. Siehe [Automationen & Dienste](automationen.md).
 
 ## Loslegen
 

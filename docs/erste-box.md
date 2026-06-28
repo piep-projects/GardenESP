@@ -45,6 +45,9 @@ Kanal (CH1–12 / R1–R2) aus einer Liste; bei WROOM den **GPIO**.
 - **Regen-/Bodensensor** (Sperr-Sensor) — blockiert die Automatik bei Nässe.
 - **Füllstand** (`level`) — Drucksensor der Zisterne (Rohwert → Liter per [Kalibrierung](quellen.md)).
 - **Literzähler** (`meter`) — Pulszähler für Festwasser.
+- **Taster / Schalter** (`button`) — ein generischer Binäreingang ohne Bewässerungs-
+  Bedeutung; wird als normaler `binary_sensor` in HA sichtbar und lässt sich in
+  [Automationen](automationen.md) frei verwenden (z. B. ein Taster startet eine Linie).
 
 !!! tip "Verdrahtung prüfen"
     In der Boxen-Übersicht öffnet **🔌 Verdrahtung** ein Pinout-Schaltbild, das zeigt,
