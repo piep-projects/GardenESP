@@ -60,6 +60,20 @@ Gerät auf → einmal [neu einbinden](esphome.md); den alten Geräte-Eintrag kan
 entfernen. Deine Einstellungen, Linien und Verläufe bleiben erhalten (sie hängen nicht am
 Gerätenamen).
 
+## „Invalid encryption key" beim Einbinden (obwohl der Schlüssel stimmt)
+
+Meldung à la `Invalid encryption key: received_name=gardenesp-steuergeraet-a, received_mac=…`.
+Zuerst der Normalfall: Der eingegebene Schlüssel muss **exakt** dem entsprechen, mit dem das
+Gerät geflasht wurde (`api_encryption_key` aus der ESPHome-`secrets.yaml` **zum Flash-Zeitpunkt**).
+Hast du den Schlüssel danach geändert → neu flashen und denselben Wert eingeben.
+
+**Häufige Falle bei mehreren Instanzen:** Prüfe die **IP/den `received_mac`** in der Meldung. Passt
+die IP **nicht** zu deinem Gerät, hat HA sich zu einem **anderen** Gerät mit **demselben
+Namen** verbunden (mDNS-Kollision — zwei Steuergeräte mit gleichem Kürzel im selben Netz, siehe
+[Erstes Steuergerät](erste-box.md)). Dann ist nicht der Schlüssel falsch, sondern das Ziel: Gib den
+Steuergeräten **unterschiedliche Kürzel** (netzwerkweit eindeutig) und flashe neu — oder binde das
+Gerät vorübergehend **über seine feste IP** ein (Integration hinzufügen → ESPHome → Host = IP).
+
 ## Weiter Hilfe
 
 Bitte ein [Issue](https://github.com/piep-projects/GardenESP/issues) öffnen — mit

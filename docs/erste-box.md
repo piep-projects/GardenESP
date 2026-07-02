@@ -28,6 +28,15 @@ GardenESP-Panel (Seitenleiste) → Tab **Hardware** → **+ Neu**:
 | **Hardware-Typ** | *GardenControl* (festes Pin-Profil) oder *ESP32-WROOM* / eigene generische Plattform (freie GPIO). Siehe [Hardware](hardware.md). |
 | **In Betrieb** | Schalter; ein deaktiviertes Steuergerät ist voll außer Betrieb (kein Plan, kein manueller Start). |
 
+!!! warning "Kürzel netzwerkweit eindeutig halten"
+    Der ESPHome-Gerätename leitet sich aus dem Kürzel ab (`gardenesp-steuergeraet-<Kürzel>`).
+    Innerhalb einer HA-Instanz vergibt das Panel automatisch freie Kürzel. Betreibst du
+    aber **mehrere GardenESP-Instanzen im selben Netzwerk** (z. B. Test + Produktiv), dürfen
+    sich deren Kürzel **nicht überschneiden** — sonst tragen zwei Geräte denselben mDNS-Namen,
+    und HA verbindet sich zum falschen (Symptom: *„Invalid encryption key"* trotz korrektem
+    Schlüssel, weil das andere Gerät antwortet). Gib solchen Steuergeräten unterschiedliche
+    Kürzel (z. B. Produktiv `A`, Test `T`).
+
 ## 2. Ausgänge & Eingänge definieren
 
 **Ausgänge** (`outputs`) = was geschaltet wird:
