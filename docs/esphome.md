@@ -75,15 +75,21 @@ So kommst du an einen Schlüssel:
 
 ## 4. GardenESP-YAML übernehmen
 
-1. Im **GardenESP-Panel** → Tab **Boxen** → bei deiner Box **🔒 YAML** öffnen und den
-   Inhalt **kopieren** (das ist die generierte ESPHome-Konfiguration).
-2. Im **ESPHome-Dashboard** ein neues Gerät anlegen bzw. eine Konfigurationsdatei
-   `gardenesp-box-<kürzel>.yaml` erstellen und das kopierte YAML **einfügen**.
-3. Speichern. Die `!secret …`-Verweise greifen jetzt auf deine `secrets.yaml`.
+Im **GardenESP-Panel** → Tab **Hardware** → bei deinem Steuergerät **🔒 YAML** öffnen. Von
+dort führen zwei Wege ins ESPHome-Dashboard (einen „YAML hochladen"-Button gibt es dort nicht):
+
+- **Kopieren → einfügen:** YAML **kopieren**, im ESPHome-Dashboard ein neues Gerät bzw. eine
+  Konfigurationsdatei anlegen, den **YAML-Editor** öffnen und einfügen → Speichern.
+- **Herunterladen → ablegen:** YAML **herunterladen** (die Datei heißt passend
+  `gardenesp-steuergeraet-<kürzel>.yaml`) und in den ESPHome-Konfig-Ordner
+  **`/config/esphome/`** legen — z. B. über die Add-ons **File Editor**, **Studio Code Server**
+  oder **Samba**. Die Datei erscheint dann automatisch im ESPHome-Dashboard.
+
+Die `!secret …`-Verweise greifen anschließend auf deine `secrets.yaml`.
 
 !!! note "Gerätename muss passen"
-    Das YAML setzt den Gerätenamen selbst (`gardenesp-box-<kürzel>`). Ändere ihn nicht — der
-    Name ist Teil der GardenESP-Logik.
+    Das YAML setzt den Gerätenamen selbst (`gardenesp-steuergeraet-<kürzel>`). Ändere ihn nicht —
+    der Name ist Teil der GardenESP-Logik.
 
 ## 5. Box flashen
 
