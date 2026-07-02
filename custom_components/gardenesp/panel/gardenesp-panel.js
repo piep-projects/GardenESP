@@ -1561,7 +1561,7 @@ class GardenEspPanel extends HTMLElement {
   _wiringModal() {
     const d = this._wiring.data || {};
     const box = d.box || {};
-    const title = `Verdrahtung — ${esc(box.label ? box.label + " · " : "")}${esc(box.name || "")}`;
+    const title = `Verdrahtung — Steuergerät ${esc(box.label ? String(box.label).toUpperCase() + " " : "")}${esc(box.name || "")}`;
     const inner = d.supported
       ? this._wireDiagram(d)
       : `<div class="empty">${esc((d.notes && d.notes[0]) || "Kein Diagramm verfügbar.")}</div>`;
@@ -1722,7 +1722,7 @@ class GardenEspPanel extends HTMLElement {
     win.document.write(`<!doctype html><html><head><title>Verdrahtung ${esc(box.name || "")}</title>
       <style>${this._wireStyle()} body{margin:16px;font-family:sans-serif}h1{font-size:16px}
       ul{font-size:12px;color:#444}</style></head><body>
-      <h1>🔌 Verdrahtung — ${esc(box.label ? box.label + " · " : "")}${esc(box.name || "")}</h1>
+      <h1>🔌 Verdrahtung — Steuergerät ${esc(box.label ? String(box.label).toUpperCase() + " " : "")}${esc(box.name || "")}</h1>
       ${this._wireDiagram(d)}
       <ul>${(d.notes || []).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       <script>window.onload=function(){window.print();}<\/script></body></html>`);
