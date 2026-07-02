@@ -9,7 +9,7 @@ zur Steuerung der Gartenbewässerung auf Basis von **ESPHome**-ESP32-Hardware.
   manuellem Start.
 - **Wasserquellen** — Regenwasser-Zisterne (Drucksensor) oder Festwasser (Literzähler),
   je mit Verbrauchsauswertung.
-- **Boxen** — mehrere ESP-Controller, gemischt (GardenControl oder ESP32-WROOM).
+- **Hardware** — mehrere ESP-Steuergeräte, gemischt (GardenControl oder ESP32-WROOM).
 - **ESPHome-YAML wird generiert** — passend zur Hardware, direkt aus dem Panel.
 - **Emergency-Shutdown am Gerät** — Sicherheitsabschaltung unabhängig von WLAN/HA.
 - **Automatisierbar** — Linien aus HA-Automationen steuern (Dienste `gardenesp.start_line` /
@@ -18,7 +18,7 @@ zur Steuerung der Gartenbewässerung auf Basis von **ESPHome**-ESP32-Hardware.
 ## Loslegen
 
 1. [Installation](installation.md) — über HACS oder manuell
-2. [Erste Box & Flash](erste-box.md) — Box anlegen, YAML generieren, flashen, einbinden
+2. [Erstes Steuergerät & Flash](erste-box.md) — Steuergerät anlegen, YAML generieren, flashen, einbinden
 3. [Hardware](hardware.md) — welches Board passt
 
 !!! note "Feedback willkommen"

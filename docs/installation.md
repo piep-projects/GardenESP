@@ -3,8 +3,8 @@
 ## Voraussetzungen
 
 - Home Assistant **2024.6.0** oder neuer
-- [ESPHome](https://esphome.io/) (Add-on oder CLI) zum Flashen der Box
-- Eine unterstützte ESP32-Box → siehe [Hardware](hardware.md)
+- [ESPHome](https://esphome.io/) (Add-on oder CLI) zum Flashen des Steuergeräts
+- Ein unterstütztes ESP32-Steuergerät → siehe [Hardware](hardware.md)
 
 ## Über HACS (empfohlen)
 
@@ -25,4 +25,4 @@ Dashboard-Karte `custom:gardenesp-card` steht bereit.
 
 ## Nächster Schritt
 
-➡️ [Erste Box & Flash](erste-box.md)
+➡️ [Erstes Steuergerät & Flash](erste-box.md)

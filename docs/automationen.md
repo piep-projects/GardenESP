@@ -50,13 +50,13 @@ automation:
 
 ## Binäreingänge als Taster/Schalter
 
-Jeder Binäreingang einer Box ist als normaler **`binary_sensor`** in Home Assistant
-sichtbar (`binary_sensor.gardenesp_box_<x>_<name>`) und in jeder Automation als **Auslöser**
+Jeder Binäreingang eines Steuergeräts ist als normaler **`binary_sensor`** in Home Assistant
+sichtbar (`binary_sensor.gardenesp_steuergeraet_<x>_<name>`) und in jeder Automation als **Auslöser**
 oder Bedingung nutzbar — unabhängig davon, ob GardenESP ihn intern verwendet.
 
 Damit ein Eingang einen **sprechenden Namen** trägt und **nicht** als Sperr-Sensor
-behandelt wird, richte ihn im Box-Editor als Typ **Taster / Schalter** (`button`) ein
-(siehe [Erste Box](erste-box.md)). Der Eingang wird dann als
+behandelt wird, richte ihn im Steuergerät-Editor als Typ **Taster / Schalter** (`button`) ein
+(siehe [Erstes Steuergerät](erste-box.md)). Der Eingang wird dann als
 schlichter `binary_sensor` geflasht — ohne Bewässerungs-Bedeutung, also auch **nicht** in der
 Sperr-Sensor-Auswahl der Linien.
 
@@ -73,7 +73,7 @@ automation:
   - alias: "Taster Terrasse → Rasen 10 min"
     trigger:
       - platform: state
-        entity_id: binary_sensor.gardenesp_box_a_taster_terrasse
+        entity_id: binary_sensor.gardenesp_steuergeraet_a_taster_terrasse
         to: "on"
     action:
       - service: gardenesp.start_line

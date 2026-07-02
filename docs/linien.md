@@ -9,13 +9,13 @@ Panel → Tab **Linien** → **+ Neu**:
 
 | Feld | Bedeutung |
 |------|-----------|
-| **Box + Ventil** | Der Ventil-Ausgang (Ausgang-ID `A5`). |
+| **Steuergerät + Ventil** | Der Ventil-Ausgang (Ausgang-ID `A5`). |
 | **Wasserquelle** | Zisterne oder Festwasser, aus der die Linie zieht. |
 | **Sperr-Sensor** (optional) | Regen-/Bodensensor; blockiert die **Automatik** bei Nässe. |
 | **Default-Dauer manuell** | Vorgabe für den manuellen Start. Akzeptiert `m:ss` (z. B. `0:18` = 18 s, Gießkanne), sonst Minuten (`5`). |
 | **Nachlauf überspringen** | Bei Zisternen: manueller Start ohne Mess-Nachlauf (Schlauch-Direktentnahme → sofort frei). |
 
-Jede Linie bekommt eine stabile **Linien-ID `L<n>`** (pro Box fortlaufend), getrennt von
+Jede Linie bekommt eine stabile **Linien-ID `L<n>`** (pro Steuergerät fortlaufend), getrennt von
 der Ausgang-ID `A5` des Ventils.
 
 ## Zeitplan
@@ -41,11 +41,11 @@ den gemessenen Verbrauch.
 ## Was im Hintergrund schützt
 
 - **Emergency-Shutdown (Notabschaltung)** — läuft **on-device** in der ESPHome-Firmware,
-  unabhängig von WLAN/HA. Erreicht ein Ventil seine `emergency_shutdown_min`, schaltet die
-  Box selbst ab. Ein Zähler „Notabschaltungen gesamt" wird hochgezählt.
+  unabhängig von WLAN/HA. Erreicht ein Ventil seine `emergency_shutdown_min`, schaltet das
+  Steuergerät selbst ab. Ein Zähler „Notabschaltungen gesamt" wird hochgezählt.
 - **Quellen-Sperre (Queue)** — eine Quelle wird zur Laufzeit gesperrt; weitere Läufe aus
   derselben Quelle warten (kein Überlasten von Pumpe/Druck).
-- **Sicherheits-Stopp pro Linie** — wird der Ziel-`switch` `unavailable` (Box-Reboot/
+- **Sicherheits-Stopp pro Linie** — wird der Ziel-`switch` `unavailable` (Steuergerät-Reboot/
   WLAN-Verlust), stoppt der Lauf und wird als `interrupted` markiert.
 
 ## Status & Störungen

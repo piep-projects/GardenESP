@@ -42,7 +42,7 @@ nav:
   - Start: index.md
   - Einstieg:
       - Installation: installation.md
-      - Erste Box & Flash: erste-box.md
+      - Erstes Steuergerät & Flash: erste-box.md
       - ESPHome flashen & einbinden: esphome.md
       - Hardware: hardware.md
   - Bedienung:

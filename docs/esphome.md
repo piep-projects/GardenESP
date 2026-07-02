@@ -1,14 +1,14 @@
 # ESPHome: Secrets, Flashen & Einbinden
 
 Dies ist der Teil, der Einsteiger erfahrungsgemäß am meisten Respekt kostet. Keine Sorge —
-du machst ihn **einmal pro Box**, danach laufen Updates drahtlos. Diese Seite erklärt jeden
+du machst ihn **einmal pro Steuergerät**, danach laufen Updates drahtlos. Diese Seite erklärt jeden
 Schritt von Grund auf.
 
 !!! info "Was passiert hier eigentlich?"
     GardenESP **erzeugt** aus deinen Panel-Einstellungen eine fertige **ESPHome-Konfiguration
     (YAML)**. ESPHome verwandelt diese Konfiguration in **Firmware** und spielt sie auf den
-    ESP32 (deine „Box"). Anschließend bindest du die Box als Gerät in Home Assistant ein —
-    erst dann kann GardenESP die Ventile schalten.
+    ESP32 (dein „Steuergerät"). Anschließend bindest du das Steuergerät als Gerät in Home
+    Assistant ein — erst dann kann GardenESP die Ventile schalten.
 
 ## Begriffe in einem Satz
 
@@ -18,7 +18,7 @@ Schritt von Grund auf.
 | **Firmware** | Das Programm, das direkt auf dem ESP32 läuft (hier von ESPHome gebaut). |
 | **Flashen** | Die Firmware auf den ESP32 übertragen — beim ersten Mal per USB-Kabel, danach drahtlos (OTA). |
 | **Secrets** | Vertrauliche Werte (WLAN-Passwort, Schlüssel …), die **getrennt** vom YAML in einer `secrets.yaml` liegen, damit sie nicht im Klartext in jeder Konfiguration stehen. |
-| **API-Schlüssel** | Ein Verschlüsselungsschlüssel, mit dem Home Assistant **verschlüsselt** mit der Box spricht. Brauchst du beim Einbinden in HA. |
+| **API-Schlüssel** | Ein Verschlüsselungsschlüssel, mit dem Home Assistant **verschlüsselt** mit dem Steuergerät spricht. Brauchst du beim Einbinden in HA. |
 | **OTA** | „Over the Air" — drahtlose Firmware-Updates über WLAN, nach dem ersten USB-Flash. |
 
 ## 1. ESPHome installieren
@@ -41,20 +41,20 @@ Das von GardenESP erzeugte YAML enthält **keine** Passwörter im Klartext, sond
 wie `!secret wifi_password`. Diese Werte definierst du **einmal** zentral. Im ESPHome-
 Dashboard: oben rechts **⋮ → Secrets** (bzw. die Datei `secrets.yaml`).
 
-GardenESP-Boxen brauchen genau diese **fünf** Secrets:
+GardenESP-Steuergeräte brauchen genau diese **fünf** Secrets:
 
 ```yaml
 # secrets.yaml  (im ESPHome-Dashboard editierbar)
 wifi_ssid: "MeinWLAN"
 wifi_password: "mein-wlan-passwort"
-wifi_ap_password: "fallback-passwort"   # für das Notfall-WLAN der Box
+wifi_ap_password: "fallback-passwort"   # für das Notfall-WLAN des Steuergeräts
 ota_password: "ein-frei-waehlbares-passwort"
 api_encryption_key: "ERSETZEN — siehe Schritt 3"
 ```
 
-!!! tip "Einmal anlegen, für alle Boxen gültig"
+!!! tip "Einmal anlegen, für alle Steuergeräte gültig"
     `secrets.yaml` gilt für **alle** ESPHome-Geräte. Hast du die fünf Werte einmal gesetzt,
-    funktioniert jede weitere GardenESP-Box ohne erneutes Secrets-Setzen.
+    funktioniert jedes weitere GardenESP-Steuergerät ohne erneutes Secrets-Setzen.
 
 ## 3. API-Verschlüsselungsschlüssel erzeugen
 
@@ -91,18 +91,18 @@ Die `!secret …`-Verweise greifen anschließend auf deine `secrets.yaml`.
     Das YAML setzt den Gerätenamen selbst (`gardenesp-steuergeraet-<kürzel>`). Ändere ihn nicht —
     der Name ist Teil der GardenESP-Logik.
 
-## 5. Box flashen
+## 5. Steuergerät flashen
 
-- **Erstes Mal: per USB.** ESP32 mit dem Rechner verbinden, im ESPHome-Dashboard bei der
-  Box **Install → Plug into this computer** (Browser-Flasher) bzw. den passenden Port wählen.
-- **Danach: drahtlos (OTA).** Sobald die Box im WLAN ist, bietet ESPHome **Install →
+- **Erstes Mal: per USB.** ESP32 mit dem Rechner verbinden, im ESPHome-Dashboard beim
+  Steuergerät **Install → Plug into this computer** (Browser-Flasher) bzw. den passenden Port wählen.
+- **Danach: drahtlos (OTA).** Sobald das Steuergerät im WLAN ist, bietet ESPHome **Install →
   Wirelessly** an — kein Kabel mehr nötig.
 
 Details und Treiber-Hinweise: [ESPHome-Flashing-Guide](https://esphome.io/guides/getting_started_hassio.html).
 
-!!! tip "Box im WLAN?"
-    Nach erfolgreichem Flash verbindet sich die Box mit deinem WLAN (aus den Secrets). Klappt
-    das nicht, spannt sie ein **Fallback-WLAN** `… Fallback` auf (Passwort `wifi_ap_password`),
+!!! tip "Steuergerät im WLAN?"
+    Nach erfolgreichem Flash verbindet sich das Steuergerät mit deinem WLAN (aus den Secrets). Klappt
+    das nicht, spannt es ein **Fallback-WLAN** `… Fallback` auf (Passwort `wifi_ap_password`),
     über das du die WLAN-Daten korrigieren kannst.
 
 !!! warning "Gerätenamen geändert? Erster Flash an die alte Adresse"
@@ -112,26 +112,26 @@ Details und Treiber-Hinweise: [ESPHome-Flashing-Guide](https://esphome.io/guides
     **USB** flashen oder unter `wifi:` `use_address: <bisheriger-name>.local` (oder feste IP)
     setzen und danach wieder entfernen. Details: [Fehlersuche](fehlersuche.md).
 
-## 6. Box in Home Assistant einbinden
+## 6. Steuergerät in Home Assistant einbinden
 
-Sobald die geflashte Box im Netzwerk ist, **entdeckt HA sie automatisch**:
+Sobald das geflashte Steuergerät im Netzwerk ist, **entdeckt HA es automatisch**:
 
-1. **Einstellungen → Geräte & Dienste** → unter **Entdeckt** erscheint die ESPHome-Box →
+1. **Einstellungen → Geräte & Dienste** → unter **Entdeckt** erscheint das ESPHome-Steuergerät →
    **Konfigurieren**.
 2. HA fragt nach dem **Verschlüsselungsschlüssel** → den `api_encryption_key` aus Schritt 3
    eingeben.
-3. Bestätigen → die Box ist als **ESPHome-Gerät** eingebunden, ihre `switch.*`/`sensor.*`-
+3. Bestätigen → das Steuergerät ist als **ESPHome-Gerät** eingebunden, seine `switch.*`/`sensor.*`-
    Entitäten existieren jetzt.
 
 !!! warning "Flashen ≠ Einbinden"
-    Eine geflashte Box ist erst nutzbar, wenn sie auch als **ESPHome-Gerät in HA** hinzugefügt
+    Ein geflashtes Steuergerät ist erst nutzbar, wenn es auch als **ESPHome-Gerät in HA** hinzugefügt
     wurde. Erst dann gibt es die Schalt- und Sensor-Entitäten, die GardenESP ansteuert.
 
 ## Geschafft
 
-Zurück ins GardenESP-Panel: Die Box ist online, und du kannst die
+Zurück ins GardenESP-Panel: Das Steuergerät ist online, und du kannst die
 [Entitäten abgleichen](erste-box.md) und deine [erste Linie](linien.md) anlegen.
 
 !!! question "Hängt's irgendwo?"
-    Häufige Stolpersteine (Box offline, Entity `—`, Drift-Warnung) findest du in der
+    Häufige Stolpersteine (Steuergerät offline, Entity `—`, Drift-Warnung) findest du in der
     [Fehlersuche](fehlersuche.md).
