@@ -99,6 +99,13 @@ Details und Treiber-Hinweise: [ESPHome-Flashing-Guide](https://esphome.io/guides
     das nicht, spannt sie ein **Fallback-WLAN** `… Fallback` auf (Passwort `wifi_ap_password`),
     über das du die WLAN-Daten korrigieren kannst.
 
+!!! warning "Gerätenamen geändert? Erster Flash an die alte Adresse"
+    Hat sich der ESPHome-**Gerätename** geändert (z. B. nachdem du das **Kürzel** eines
+    Steuergeräts geändert hast), scheitert der OTA-Flash mit *„Error resolving IP address …
+    Is it connected to WiFi?"* — der neue Name ist noch nicht im Netz. Dann einmalig per
+    **USB** flashen oder unter `wifi:` `use_address: <bisheriger-name>.local` (oder feste IP)
+    setzen und danach wieder entfernen. Details: [Fehlersuche](fehlersuche.md).
+
 ## 6. Box in Home Assistant einbinden
 
 Sobald die geflashte Box im Netzwerk ist, **entdeckt HA sie automatisch**:
