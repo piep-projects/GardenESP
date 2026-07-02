@@ -22,6 +22,19 @@ Im Quellen-Editor:
     bei ESP32-WROOM/Generic die **ADC-Spannung** (`V`), bei GardenControl der
     **4-20-mA-Strom** (`mA`). Es ist kein Druck/cm.
 
+!!! warning "Ganzen Bereich kalibrieren — sonst „friert" der Wert ein"
+    Außerhalb der eingetragenen Stützpunkte wird der Liter-Wert an den **nächsten
+    Punkt geklemmt** (er wird **nicht** extrapoliert — das schützt vor Unsinn an den
+    krummen Tank-Enden). Steigt der Pegel **über** deinen obersten Stützpunkt, bleibt
+    die Anzeige auf dessen Liter-Wert **stehen**, obwohl der Rohwert weiter steigt (und
+    umgekehrt unten). Kalibriere daher bis zu deinem **echten Höchststand** *und* bis
+    **leer**.
+
+    Zusätzlich wird der Wert auf **`[0, Max-Volumen]`** begrenzt (keine negativen /
+    über-vollen Liter). Setz das **Max-Volumen** der Quelle auf die **reale**
+    Maximalmenge — bei selbst gesetztem Überlauf/Ablauf ist das oft **weniger** als das
+    Nennvolumen des Tanks.
+
 ## Festwasser
 
 Verbrauch wird über den **Literzähler** (Pulszähler) gemessen. Die Quelle zeigt im
