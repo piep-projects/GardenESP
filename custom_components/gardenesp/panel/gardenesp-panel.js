@@ -86,7 +86,7 @@ const TABS = [
   { id: "lines", label: "Linien" },
   { id: "controls", label: "Steuerungen" },
   { id: "sources", label: "Quellen" },
-  { id: "boxes", label: "Boxen" },
+  { id: "boxes", label: "Hardware" },
   { id: "topology", label: "Topologie" },
   { id: "general", label: "Allgemein" },
 ];
@@ -192,7 +192,7 @@ class GardenEspPanel extends HTMLElement {
       if (this._editing.kind === "box") {
         const dup = this._dupName(this._draft.outputs) || this._dupName(this._draft.inputs);
         if (dup) {
-          this._toast(`Name „${dup}" ist doppelt — Aus-/Eingangsnamen müssen je Box eindeutig sein.`);
+          this._toast(`Name „${dup}" ist doppelt — Aus-/Eingangsnamen müssen je Steuergerät eindeutig sein.`);
           return;
         }
       }
@@ -482,7 +482,7 @@ class GardenEspPanel extends HTMLElement {
   // (Desktop, CSS-Grid mit Spalten-Spans); auf schmalen Screens vertikal gestapelt.
   _topologyView() {
     const groups = this._topoGroups();
-    const intro = `<p class="sub topo-intro">Abgeleitete Sicht (read-only) aus Quellen · Linien · Boxen — kein eigener Speicher. Strecke je Quelle: Box → Quelle (+Sensor) → Pumpe (+verbundenes Ventil) → Ventil → Linie.</p>`;
+    const intro = `<p class="sub topo-intro">Abgeleitete Sicht (read-only) aus Quellen · Linien · Steuergeräte — kein eigener Speicher. Strecke je Quelle: Steuergerät → Quelle (+Sensor) → Pumpe (+verbundenes Ventil) → Ventil → Linie.</p>`;
     const printBtn = groups.length ? `<button class="btn" data-printtopo>Drucken</button>` : "";
     const head = `<div class="listhead"><h2>Topologie</h2>${printBtn}</div>${intro}`;
     if (!groups.length) return `${head}<div class="empty">Keine Wasserquellen angelegt.</div>`;
@@ -616,7 +616,7 @@ class GardenEspPanel extends HTMLElement {
     };
 
     // --- assemble ------------------------------------------------------------
-    const heads = [["Box", x0, w0], ["Quelle", x1, w1], ["Pumpe", x2, w2], ["Ventil", x3, w3], ["Linie", x4, w4]];
+    const heads = [["Steuergerät", x0, w0], ["Quelle", x1, w1], ["Pumpe", x2, w2], ["Ventil", x3, w3], ["Linie", x4, w4]];
     let svg = heads.map(([t, x, w]) => `<text x="${(x + w / 2).toFixed(1)}" y="13" class="tn-h" text-anchor="middle">${t}</text>`).join("");
 
     const boxCY = bandCenter(0, totalRows);
@@ -678,7 +678,7 @@ class GardenEspPanel extends HTMLElement {
   }
 
   _listHeader(title, kind) {
-    return `<div class="listhead"><h2>${esc(title)}</h2>
+    return `<div class="listhead${title ? "" : " nohead"}">${title ? `<h2>${esc(title)}</h2>` : ""}
       <button class="btn primary" data-add="${kind}">+ Neu</button></div>`;
   }
 
@@ -700,7 +700,7 @@ class GardenEspPanel extends HTMLElement {
         }).join("")
       : Object.keys(cfg.boxes || {}).length
         ? `<div class="empty">Noch keine Linien. „+ Neu" ordnet einem Ventil-Ausgang eine Linie zu.</div>`
-        : `<div class="empty">Noch keine Linien — lege zuerst im Tab „Boxen" eine Box an. ${this._docsBtn("erste-box/", "📖 Erste Schritte")}</div>`;
+        : `<div class="empty">Noch keine Linien — lege zuerst im Tab „Hardware" ein Steuergerät an. ${this._docsBtn("erste-box/", "📖 Erste Schritte")}</div>`;
     return this._listHeader("Bewässerungslinien", "line") + `<section class="cardbox">${body}</section>`;
   }
 
@@ -746,7 +746,7 @@ class GardenEspPanel extends HTMLElement {
     const sources = Object.values(cfg.sources || {});
     const body = sources.length
       ? sources.map((s) => `<div class="row"><div class="grow">
-          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Box deaktiviert</span>` : ""}</div>
+          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Steuergerät deaktiviert</span>` : ""}</div>
           <div class="sub">${s.type === "cistern" ? `Max ${s.max_volume_l || "?"} L · min ${s.min_fill_pct || 0} %` : `${s.pulse_factor} L/Impuls`}${this._sourceLevel(s)}</div>
           ${this._sourceEntities(s)}
           ${this._stamps(s)}
@@ -881,7 +881,7 @@ class GardenEspPanel extends HTMLElement {
       `Das Ventil „${esc(out.name || out.id)}“ schaltet nach <b>${emerg} min</b> per Notabschaltung ab. ` +
       `Diese Dauer(n) lassen unter 1 min Reserve (> ${limit} min) und werden als „Notabschaltung“ geloggt: ` +
       `<b>${esc(bad.join(", "))}</b>. Dauer unter ${limit} min setzen oder die Notabschaltung des ` +
-      `Ausgangs im Box-Editor erhöhen.</div>`;
+      `Ausgangs im Steuergerät-Editor erhöhen.</div>`;
   }
   // Short valve id (A5 = box label + valve channel; FDS §4.1) for a line's
   // valve_output ref — same label the dashboard card shows before the name.
@@ -953,14 +953,13 @@ class GardenEspPanel extends HTMLElement {
           // Zone „Steuerung" (logisch) · Zone Plattformname (physisches Board).
           return `<div class="boxcard${b.enabled === false ? " off" : ""}">
             <div class="boxhead">
-              <div class="title">${b.label ? `<span class="chip">${esc(String(b.label).toUpperCase())}</span> ` : ""}${esc(b.name || b.id)}</div>
+              <div class="title">Steuergerät ${b.label ? `<span class="chip">${esc(String(b.label).toUpperCase())}</span> ` : ""}${esc(b.name || b.id)}</div>
               <div class="headacts">
                 <button class="btn" data-editbox="${esc(b.id)}">Bearbeiten</button>
                 ${admin ? `<button class="btn ghost" data-yaml="${esc(b.id)}" title="ESPHome-YAML (Admin)">🔒 YAML</button>` : ""}
               </div>
             </div>
             <div class="zone">
-              <div class="zonelabel">Steuerung</div>
               <div class="zonebody">
                 <div class="zonestat">${this._boxEnabledToggle(b)}<span class="muted">${valves} Ventile · ${pumps} Pumpen · ${(b.inputs || []).length} Eingänge</span></div>
                 ${this._stamps(b)}
@@ -981,12 +980,12 @@ class GardenEspPanel extends HTMLElement {
         }).join("")
       : `<div class="empty onboard">
           <p><strong>Willkommen bei GardenESP 🌱</strong></p>
-          <p>Lege zuerst eine <strong>Box</strong> (deinen ESP-Controller) mit ihren Ein-/Ausgängen an,
-             generiere das ESPHome-YAML und flashe sie. Die Schritt-für-Schritt-Anleitung inkl. erstem
+          <p>Lege zuerst ein <strong>Steuergerät</strong> (deinen ESP-Controller) mit seinen Ein-/Ausgängen an,
+             generiere das ESPHome-YAML und flashe es. Die Schritt-für-Schritt-Anleitung inkl. erstem
              Flash steht in der Online-Hilfe.</p>
-          <p>${this._docsBtn("erste-box/", "📖 Anleitung: Erste Box & Flash", "primary")}</p>
+          <p>${this._docsBtn("erste-box/", "📖 Anleitung: Erstes Steuergerät & Flash", "primary")}</p>
         </div>`;
-    return this._listHeader("Boxen", "box") +
+    return this._listHeader("", "box") +
       `<section class="cardbox boxlist">${body}</section>`;
   }
   // --- System A status chips (style-guide §3.1) ------------------------------
@@ -995,7 +994,7 @@ class GardenEspPanel extends HTMLElement {
   _onlineChip(b) {
     const online = this._val(b.id, "online");
     if (online === true) return `<span class="chip ok">● Online</span>`;
-    if (online == null) return `<span class="chip warn" title="Box ist in HA nicht als ESPHome-Gerät eingebunden">○ kein Gerät</span>`;
+    if (online == null) return `<span class="chip warn" title="Steuergerät ist in HA nicht als ESPHome-Gerät eingebunden">○ kein Gerät</span>`;
     const cls = b.enabled === false ? "" : "estop";
     return `<span class="chip ${cls}">○ Offline</span>`;
   }
@@ -1045,7 +1044,7 @@ class GardenEspPanel extends HTMLElement {
   _fwBanner() {
     const names = Object.values(this._cfg().boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
-      .map((b) => b.label ? `Box ${String(b.label).toUpperCase()}` : (b.name || b.id));
+      .map((b) => b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : (b.name || b.id));
     if (!names.length) return "";
     const txt = `⚠ Flashen ausstehend: ${names.join(" · ")}`;
     return `<span class="fwslot"><span class="fwbanner" data-tab="boxes" title="${esc(txt)}">${esc(txt)}</span></span>`;
@@ -1146,7 +1145,7 @@ class GardenEspPanel extends HTMLElement {
               `<button class="btn ghost small" data-sync="${esc(b.id)}">⟳ ${b.label ? `[${esc(String(b.label).toUpperCase())}] ` : ""}${esc(b.name || b.id)} abgleichen</button>`,
           )
           .join(" ")
-      : `<span class="sub muted">Noch keine Boxen angelegt.</span>`;
+      : `<span class="sub muted">Noch keine Steuergeräte angelegt.</span>`;
     const builtin = `
       <div class="row"><div class="grow"><div class="title">GardenControl<span class="tag muted">eingebaut</span></div>
         <div class="sub">festes Profil: 12 Ventile (24 VAC) · 2 Relais (R1/R2, 230 V) · 2× 4-20 mA (ADS A0/A1) · 4× ADC 0-12 V · 3× Binär (Regen/S0/Schalter)</div></div></div>
@@ -1162,8 +1161,8 @@ class GardenEspPanel extends HTMLElement {
       `<div class="listhead"><h2>Allgemein</h2></div>` +
       `<section class="cardbox">` +
       field("History-Aufbewahrung (Monate, 0 = unbegrenzt)", `<input type="number" min="0" data-setting="history_months" value="${esc(months)}">`) +
-      `<div class="field"><label>Deaktivierte Boxen im Dashboard</label>
-        <div class="sub">Aus: Linien & Sensoren einer deaktivierten Box werden ausgeblendet; stattdessen erscheint eine Zeile „Box deaktiviert". Ein: sie bleiben sichtbar (ausgegraut).</div>
+      `<div class="field"><label>Deaktivierte Steuergeräte im Dashboard</label>
+        <div class="sub">Aus: Linien & Sensoren eines deaktivierten Steuergeräts werden ausgeblendet; stattdessen erscheint eine Zeile „Steuergerät deaktiviert". Ein: sie bleiben sichtbar (ausgegraut).</div>
         <label class="chk"><input type="checkbox" data-setting-bool="show_disabled_box_entities" ${s.show_disabled_box_entities ? "checked" : ""}> Entities trotzdem anzeigen</label></div>` +
       `<div class="field"><label>Reihenfolge im Dashboard</label>
         <div class="sub">Position von Quellen und Sperr-Sensoren relativ zu den Linien. Steuerungen bleiben immer unten.</div>
@@ -1184,11 +1183,11 @@ class GardenEspPanel extends HTMLElement {
       `</section>` +
       `<section class="cardbox">` +
       `<div class="field"><label>Entities abgleichen</label>
-        <div class="sub">Ordnet die Aus-/Eingänge einer Box den echten ESPHome-Entities in HA zu (Abgleich über den Entity-<b>Namen</b>, nicht die <code>entity_id</code> — eine <code>entity_id</code> wird dabei <b>nie</b> geändert).
-        <b>Normalerweise nicht nötig:</b> der Abgleich läuft automatisch beim Speichern einer Box, beim Start der Integration und nach jeder Änderung der ESPHome-Entities einer Box (z. B. selbstheilend nach einem Flash, der Entities hinzufügt/umbenennt).
+        <div class="sub">Ordnet die Aus-/Eingänge eines Steuergeräts den echten ESPHome-Entities in HA zu (Abgleich über den Entity-<b>Namen</b>, nicht die <code>entity_id</code> — eine <code>entity_id</code> wird dabei <b>nie</b> geändert).
+        <b>Normalerweise nicht nötig:</b> der Abgleich läuft automatisch beim Speichern eines Steuergeräts, beim Start der Integration und nach jeder Änderung der ESPHome-Entities eines Steuergeräts (z. B. selbstheilend nach einem Flash, der Entities hinzufügt/umbenennt).
         Manuell anstoßen ist sinnvoll, wenn:
         <ul style="margin:.4em 0 0 1.1em;padding:0">
-          <li>eine Box gerade <b>neu in HA als ESPHome-Gerät hinzugefügt</b> wurde und die Zuordnung in der Boxen-Übersicht noch leer (<code>—</code>) ist;</li>
+          <li>ein Steuergerät gerade <b>neu in HA als ESPHome-Gerät hinzugefügt</b> wurde und die Zuordnung in der Hardware-Übersicht noch leer (<code>—</code>) ist;</li>
           <li>du eine <b>Entity in HA umbenannt</b> hast und die Auflösung nicht sofort folgen soll/folgt;</li>
           <li>etwas <b>nicht aufgelöst</b> aussieht (Dashboard/Übersicht zeigt <code>—</code>) und du eine sofortige Rückmeldung <code>x/y abgeglichen</code> willst.</li>
         </ul></div>
@@ -1202,7 +1201,7 @@ class GardenEspPanel extends HTMLElement {
     const kind = this._editing.kind;
     const d = this._draft;
     const isNew = !d.id;
-    const titleMap = { line: "Linie", control: "Steuerung", source: "Quelle", box: "Box" };
+    const titleMap = { line: "Linie", control: "Steuerung", source: "Quelle", box: "Steuergerät" };
     let fields = "";
     if (kind === "line") fields = this._lineForm(d);
     else if (kind === "control") fields = this._controlForm(d);
@@ -1232,7 +1231,7 @@ class GardenEspPanel extends HTMLElement {
     const senOpts = [["", "— kein Sensor —"], ...this._sensorInputRefs()];
     return (
       field("Name", text("name", d.name)) +
-      field("Box", select("box_id", d.box_id, this._boxOptions())) +
+      field("Steuergerät", select("box_id", d.box_id, this._boxOptions())) +
       field("Ventil-Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...valveOpts])) +
       field("Wasserquelle", select("source_id", d.source_id, srcOpts)) +
       field("Automatik", checkbox("automatic", d.automatic)) +
@@ -1255,9 +1254,9 @@ class GardenEspPanel extends HTMLElement {
     const outOpts = this._outputRefs(["other", "pump"], d.box_id);
     return (
       field("Name", text("name", d.name)) +
-      field("Box", select("box_id", d.box_id, this._boxOptions())) +
+      field("Steuergerät", select("box_id", d.box_id, this._boxOptions())) +
       field("Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...outOpts]),
-        "Ein Box-Ausgang vom Typ „Sonstiges“ oder „Pumpe“ (z. B. Relais für Springbrunnen/Kamera). Im Box-Editor anlegen.") +
+        "Ein Steuergerät-Ausgang vom Typ „Sonstiges“ oder „Pumpe“ (z. B. Relais für Springbrunnen/Kamera). Im Steuergerät-Editor anlegen.") +
       field("Automatik", checkbox("automatic", d.automatic)) +
       field("Im Dashboard zeigen", checkbox("show_on_dashboard", d.show_on_dashboard),
         "Aus = nur in den Einstellungen, nicht auf dem Dashboard.") +
@@ -1462,14 +1461,14 @@ class GardenEspPanel extends HTMLElement {
     return (
       field("Name", text("name", d.name)) +
       field("Plattform", select("hw_type", d.hw_type, this._platforms().map((p) => [p.id, p.name]))) +
-      field("Box-Kürzel (z. B. A → A5)", select("label", d.label, this._boxLabelOptions(d))) +
+      field("Kürzel (z. B. A → A5)", select("label", d.label, this._boxLabelOptions(d))) +
       field("Aktiviert (deaktiviert = außer Betrieb)", checkbox("enabled", d.enabled !== false)) +
       `<div class="field"><label>Ausgänge (Ventile & Pumpen)</label>
-        <div class="sub">Kanal = Box/Ventil-ID (A5).${generic ? " GPIO = physischer ESP-Pin (frei)." : " ESP-Pin fest aus dem GardenControl-Profil."} Entity wird automatisch abgeleitet (s. Box-Übersicht).</div>
+        <div class="sub">Kanal = Ausgang-ID (A5).${generic ? " GPIO = physischer ESP-Pin (frei)." : " ESP-Pin fest aus dem GardenControl-Profil."} Entity wird automatisch abgeleitet (s. Hardware-Übersicht).</div>
         ${outs || `<div class="empty">Keine Ausgänge.</div>`}
         <button class="btn ghost small" data-addout>+ Ausgang</button></div>` +
       `<div class="field"><label>Eingänge (Sensoren)</label>
-        <div class="sub">Pin = ESP-Eingang${generic ? " (frei wählbar)" : ""}; Regen/Bodenfeuchte tragen ihren Sperr-Parameter. Entity wird automatisch abgeleitet (s. Box-Übersicht).</div>
+        <div class="sub">Pin = ESP-Eingang${generic ? " (frei wählbar)" : ""}; Regen/Bodenfeuchte tragen ihren Sperr-Parameter. Entity wird automatisch abgeleitet (s. Hardware-Übersicht).</div>
         ${ins || `<div class="empty">Keine Eingänge.</div>`}
         <button class="btn ghost small" data-addin>+ Eingang</button></div>`
     );
@@ -1516,7 +1515,7 @@ class GardenEspPanel extends HTMLElement {
       const r = await this._ws({ type: "gardenesp/box/sync", box_id: boxId });
       if (!r.total) this._toast("Keine Ein-/Ausgänge zum Abgleichen.");
       else if (!r.resolved)
-        this._toast("Keine Entities gefunden — Box flashen und in HA als ESPHome-Gerät hinzufügen.");
+        this._toast("Keine Entities gefunden — Steuergerät flashen und in HA als ESPHome-Gerät hinzufügen.");
       else this._toast(`${r.resolved}/${r.total} Entities abgeglichen.`);
     } catch (err) {
       this._toast(`Abgleich: ${err.message || err}`);
@@ -1529,7 +1528,7 @@ class GardenEspPanel extends HTMLElement {
   async _openYaml(boxId) {
     try {
       const res = await this._ws({ type: "gardenesp/box/yaml", box_id: boxId });
-      this._yaml = { box_id: boxId, text: res.yaml };
+      this._yaml = { box_id: boxId, text: res.yaml, node: res.node_name };
     } catch (err) {
       this._toast(`YAML: ${err.message || err}`);
       return;
@@ -1962,7 +1961,7 @@ class GardenEspPanel extends HTMLElement {
     const blob = new Blob([this._yaml.text], { type: "text/yaml" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${this._yaml.box_id}.yaml`;
+    a.download = `${this._yaml.node || this._yaml.box_id}.yaml`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -2061,6 +2060,7 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: v
 .cardbox { background: var(--card-background-color, #fff); border-radius: 12px; padding: 14px 16px;
   margin-bottom: 16px; box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,.12)); }
 .listhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.listhead.nohead { justify-content: flex-end; }
 .row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--divider-color, #eee); }
 .row:first-of-type { border-top: none; }
 .grow { flex: 1; min-width: 0; }

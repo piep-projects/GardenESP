@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "GardenESP IrrigationController",
-        "description": "Set up the integration. Boxes, lines, water sources and sensors are managed afterwards in the panel."
+        "description": "Set up the integration. Hardware (controllers), lines, water sources and sensors are managed afterwards in the panel."
       }
     },
     "abort": {

@@ -33,17 +33,18 @@ class TestHeaderAndValidation(unittest.TestCase):
         self.assertTrue(yaml.endswith("\n"))
 
     def test_device_name_from_label_is_branded(self):
-        # With a box label the device name is gardenesp-box-<label> (stable/branded),
-        # independent of the free-text box name → entity_ids like switch.gardenesp_box_c_*.
+        # With a box label the device name is gardenesp-steuergeraet-<label>
+        # (stable/branded), independent of the free-text box name → entity_ids like
+        # switch.gardenesp_steuergeraet_c_*.
         yaml = gen.generate_box_yaml(_box(name="Testbox", label="C"))
-        self.assertIn("device_name: gardenesp-box-c", yaml)
+        self.assertIn("device_name: gardenesp-steuergeraet-c", yaml)
         self.assertNotIn("device_name: testbox", yaml)
 
     def test_friendly_name_prefixed_with_box_label(self):
-        # GardenESP prefix + Kürzel only → entity_ids become gardenesp_box_a_*
+        # GardenESP prefix + Kürzel only → entity_ids become gardenesp_steuergeraet_a_*
         # (descriptive name intentionally dropped from the prefix).
         yaml = gen.generate_box_yaml(_box(name="Schreibtisch Test", label="A"))
-        self.assertIn('friendly_name: "GardenESP Box A"', yaml)
+        self.assertIn('friendly_name: "GardenESP Steuergerät A"', yaml)
 
     def test_friendly_name_without_label_is_plain(self):
         yaml = gen.generate_box_yaml(_box(name="Schreibtisch Test"))
@@ -94,7 +95,7 @@ class TestGardenControl(unittest.TestCase):
 
     def test_umlauts_folded_to_ascii_in_name(self):
         # Umlauts/ß in the emitted name → ESPHome derives a clean object_id
-        # (switch.gardenesp_box_a_groessere_entnahme), not one with dropped bytes.
+        # (switch.gardenesp_steuergeraet_a_groessere_entnahme), not one with dropped bytes.
         box = _box(outputs=[{"id": "v1", "type": "valve", "name": "Größere Entnahme", "channel": "5"}])
         yaml = gen.generate_box_yaml(box)
         self.assertIn('name: "Groessere Entnahme"', yaml)

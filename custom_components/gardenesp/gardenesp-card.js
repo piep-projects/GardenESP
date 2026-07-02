@@ -20,7 +20,7 @@ const STATUS = {
   blocked_sensor: { label: "⚠ Gesperrt · Sensor nass", cls: "info" },
   blocked_level: { label: "⚠ Gesperrt · Wasserstand niedrig", cls: "info" },
   automatic_off: { label: "◌ Automatik AUS", cls: "muted" },
-  box_disabled: { label: "◌ Box deaktiviert", cls: "muted" },
+  box_disabled: { label: "◌ Steuergerät deaktiviert", cls: "muted" },
   unreachable: { label: "⚠ Nicht erreichbar", cls: "warn" },
   settling: { label: "◐ Nachlauf · Messung", cls: "warn" },
 };
@@ -35,7 +35,7 @@ const RESULT_LABEL = {
   skipped_level: "Wasserstand niedrig",
   skipped_unreachable: "übersprungen (nicht erreichbar)",
   superseded: "abgelöst (Neustart)",
-  interrupted: "abgebrochen (Box weg)",
+  interrupted: "abgebrochen (Steuergerät weg)",
   emergency: "Notabschaltung",
 };
 // Run results that count as a disturbance (Störung) surfaced on the dashboard
@@ -207,7 +207,7 @@ class GardenEspCard extends HTMLElement {
     const label = esc(`${b.label ? b.label + " · " : ""}${b.name || b.id}`);
     const line1 = `<span class="nm">${label}</span>`;
     const right = `<span class="muted">deaktiviert</span>`;
-    return this._row(ICONS.box_off, "", line1, "Box außer Betrieb", right, "");
+    return this._row(ICONS.box_off, "", line1, "Steuergerät außer Betrieb", right, "");
   }
   // Short id (A5) for any output ref "{box_id}#{output_id}".
   _refLabel(cfg, ref) {
@@ -223,9 +223,9 @@ class GardenEspCard extends HTMLElement {
   _fwBanner(cfg) {
     const names = Object.values(cfg.boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
-      .map((b) => (b.label ? `Box ${String(b.label).toUpperCase()}` : b.name || b.id));
+      .map((b) => (b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : b.name || b.id));
     if (!names.length) return "";
-    return `<a class="fwbanner" href="/gardenesp" title="Einstellungen → Boxen">⚠ Flashen ausstehend: ${esc(names.join(" · "))}</a>`;
+    return `<a class="fwbanner" href="/gardenesp" title="Einstellungen → Hardware">⚠ Flashen ausstehend: ${esc(names.join(" · "))}</a>`;
   }
 
   _build() {
@@ -398,7 +398,7 @@ class GardenEspCard extends HTMLElement {
     // Source on a deactivated box → out of service (shown only when entities are kept visible).
     if (this._isSourceDisabled(cfg, s)) {
       const line1 = `<span class="nm">${esc(s.name || id)}</span>`;
-      return this._row(icon, `source:${esc(id)}`, line1, "", `<span class="muted">Box deaktiviert</span>`, "");
+      return this._row(icon, `source:${esc(id)}`, line1, "", `<span class="muted">Steuergerät deaktiviert</span>`, "");
     }
     // Single line: name left, fill level right-aligned — just liters, like a box sensor
     // value (Max steht links neben Min in der Übersicht; Prozent nur im Detail). The icon
@@ -510,7 +510,7 @@ class GardenEspCard extends HTMLElement {
     const sensor = this._inputOf(cfg, ln.sensor_input);
     const es = out && out.emergency_shutdown_min ? `${out.emergency_shutdown_min} min` : "aus";
     return this._kv([
-      ["Box/Ventil", esc(this._valveLabel(cfg, ln))],
+      ["Steuergerät/Ventil", esc(this._valveLabel(cfg, ln))],
       ["Schalt-Entity", esc(out && out.entity ? out.entity : "—")],
       ["Quelle", src ? esc(src.name) : "ohne Quelle"],
       ["Notstop", esc(es)],

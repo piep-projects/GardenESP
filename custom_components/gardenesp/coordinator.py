@@ -422,6 +422,15 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         box_dict, base = self._box_yaml_inputs(box)
         return esphome_yaml.generate_box_yaml(box_dict, base=base)
 
+    def box_node_name(self, box_id: str) -> str:
+        """The ESPHome node ``name:`` for a box (``gardenesp-steuergeraet-<label>``).
+        Used as the suggested YAML download filename so it matches the flashed
+        device rather than the internal box_id."""
+        box = self.config.boxes[box_id]
+        return esphome_yaml.device_name(
+            {"label": box.label, "name": box.name, "id": box.id}
+        )
+
     def _recompute_box_hash(self, box: Box) -> None:
         try:
             box_dict, base = self._box_yaml_inputs(box)
@@ -437,7 +446,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
     def _box_device_sw_version(self, box: Box) -> str | None:
         """The flashed firmware's reported ``project.version``. HA's ESPHome
         integration stores it as the device ``sw_version`` (and derives model
-        ``box`` / manufacturer ``gardenesp`` from ``project.name``). None when the
+        ``steuergeraet`` / manufacturer ``gardenesp`` from ``project.name``). None when the
         device isn't added to HA or never reported a project version.
 
         HA appends ``" (ESPHome <ver>)"`` to the project version (verified live on

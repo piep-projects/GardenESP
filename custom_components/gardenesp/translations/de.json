@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "GardenESP IrrigationController",
-        "description": "Richtet die Integration ein. Boxen, Linien, Wasserquellen und Sensoren werden anschließend im Panel verwaltet."
+        "description": "Richtet die Integration ein. Hardware (Steuergeräte), Linien, Wasserquellen und Sensoren werden anschließend im Panel verwaltet."
       }
     },
     "abort": {

@@ -222,7 +222,10 @@ def ws_box_yaml(hass, connection, msg):
     except YamlGenError as err:
         connection.send_error(msg["id"], "yaml_error", str(err))
         return
-    connection.send_result(msg["id"], {"yaml": yaml, "readonly": True})
+    connection.send_result(
+        msg["id"],
+        {"yaml": yaml, "readonly": True, "node_name": coord.box_node_name(msg["box_id"])},
+    )
 
 
 @websocket_api.websocket_command(
