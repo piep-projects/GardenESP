@@ -31,23 +31,23 @@ Kategorie **Integration** → installieren → **Home Assistant neu starten**.
 **Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**.
 Danach erscheint **GardenESP** in der Seitenleiste (Panel) und die Karte `custom:gardenesp-card` steht bereit.
 
-### 3 · Erste Box anlegen
+### 3 · Erstes Steuergerät anlegen
 
-Panel → Tab **Boxen** → **+ Neu**: Kürzel + Name, **Hardware-Typ** wählen (*GardenControl* oder
+Panel → Tab **Hardware** → **+ Neu**: Kürzel + Name, **Hardware-Typ** wählen (*GardenControl* oder
 *ESP32-WROOM*), dann **Ausgänge** (Ventile/Pumpen) und **Eingänge** (Regen-/Bodensensor, Füllstand,
 Literzähler) anlegen. Pro Ventil eine sinnvolle **Not-Aus-Zeit** setzen.
 
 ### 4 · Firmware flashen
 
-Boxen-Übersicht → **🔒 YAML** zeigt die generierte ESPHome-Konfiguration. In **ESPHome** übernehmen,
-um deine `secrets` (WLAN, API-Key) ergänzen und die Box flashen (erst USB, später OTA).
+Hardware-Übersicht → **🔒 YAML** zeigt die generierte ESPHome-Konfiguration. In **ESPHome** übernehmen,
+um deine `secrets` (WLAN, API-Key) ergänzen und das Steuergerät flashen (erst USB, später OTA).
 
-### 5 · Box in Home Assistant einbinden
+### 5 · Steuergerät in Home Assistant einbinden
 
-ESPHome meldet die geflashte Box → **Einstellungen → Geräte & Dienste** richtet sie ein (API-Key aus
+ESPHome meldet das geflashte Steuergerät → **Einstellungen → Geräte & Dienste** richtet es ein (API-Key aus
 den ESPHome-Secrets). Erst danach existieren die `switch.*`/`sensor.*`-Entitäten.
 
-> ⚠️ **Flashen ≠ Einbinden** — eine geflashte Box ist erst nutzbar, wenn sie auch als ESPHome-Gerät in
+> ⚠️ **Flashen ≠ Einbinden** — ein geflashtes Steuergerät ist erst nutzbar, wenn es auch als ESPHome-Gerät in
 > HA hinzugefügt wurde. Sind Aus-/Eingänge nicht zugeordnet: Panel → **Allgemein → Entities abgleichen**.
 
 ### 6 · Linie anlegen → fertig
@@ -62,13 +62,13 @@ Im **Dashboard** startest du Linien manuell (▶) und siehst Status, Restzeit un
 ## Voraussetzungen
 
 - Home Assistant **2024.6.0+** (Brand-Icon ab **2026.3**), [ESPHome](https://esphome.io/) zum Flashen
-- Eine unterstützte ESP32-Box → [Hardware][docs-hardware] (Smart-MF GardenControl oder ESP32-WROOM)
+- Ein unterstütztes ESP32-Steuergerät → [Hardware][docs-hardware] (Smart-MF GardenControl oder ESP32-WROOM)
 
 ## Mehr erfahren (optional)
 
 | Thema | |
 |---|---|
-| [Erste Box & Flash][docs-firstbox] | Ausführlich, mit Feld-Tabellen |
+| [Erstes Steuergerät & Flash][docs-firstbox] | Ausführlich, mit Feld-Tabellen |
 | [Linien & Zeitpläne][docs-lines] · [Wasserquellen][docs-sources] · [Dashboard][docs-dash] | Bedienung |
 | [Hardware][docs-hardware] · [Fehlersuche][docs-trouble] | Referenz & Hilfe |
 
