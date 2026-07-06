@@ -27,6 +27,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -52,6 +53,7 @@ from .const import (
     RESULT_SKIPPED_UNREACHABLE,
     RESULT_STOPPED,
     RESULT_SUPERSEDED,
+    SIGNAL_ADD_ENTITIES,
     SOURCE_CISTERN,
     STATUS_ACTIVE,
     STATUS_AUTOMATIC_OFF,
@@ -208,10 +210,31 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             # Deactivating a box takes it out of service immediately (FR-S).
             await self._async_stop_lines_for_box(obj_id)
         if is_new:
-            self._schedule_reload()  # new object → (re)create its entities
-        else:
-            self._post_config_change()
+            # Add the new object's entities *in place* instead of reloading the
+            # whole config entry — a reload briefly unloaded the integration and
+            # flashed "Fehler beim Laden der Integration" in the frontend.
+            self._add_new_entities(obj if kind == "box" else None)
+        self._post_config_change()
         return obj_id
+
+    def _add_new_entities(self, new_box: Box | None) -> None:
+        """Create the entities for a just-added object without a reload.
+
+        A new Box carries no entities of its own, so its HA "hub" device (used as
+        the ``via_device`` target by its inputs) must be registered explicitly —
+        exactly as ``async_setup_entry`` does at startup. The entity platforms
+        then pick up any new line/source/input entities off the dispatcher signal.
+        """
+        if new_box is not None:
+            from .entity import box_device_info  # local: avoid import cycle
+
+            dr.async_get(self.hass).async_get_or_create(
+                config_entry_id=self.entry.entry_id,
+                **box_device_info(new_box.id, new_box.name, new_box.hw_type),
+            )
+        async_dispatcher_send(
+            self.hass, SIGNAL_ADD_ENTITIES.format(self.entry.entry_id)
+        )
 
     def _line_seq_for_upsert(
         self, data: dict[str, Any], existing: Any, is_new: bool
@@ -258,9 +281,28 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
                 await self.async_stop_line(line.id)
 
     async def async_delete(self, kind: str, obj_id: str) -> None:
-        self._container(kind).pop(obj_id, None)
+        obj = self._container(kind).pop(obj_id, None)
         await self.async_save_config()
-        self._schedule_reload()
+        # Remove the object's HA device(s) in place instead of reloading the
+        # whole config entry — a reload briefly unloaded the integration and made
+        # the frontend show "Integration nicht geladen". Removing a device from
+        # the registry cascades to its entities (HA tears them down for us).
+        self._remove_ha_devices(kind, obj_id, obj)
+        self._post_config_change()
+
+    def _remove_ha_devices(self, kind: str, obj_id: str, obj: Any) -> None:
+        """Delete the HA device(s) backing a just-removed config object so their
+        entities disappear without a reload. Each Line/Source/Sensor is its own
+        device ``(DOMAIN, obj_id)``; a Box is its hub device plus one per input
+        (``"{box_id}#{input_id}"``)."""
+        dev_reg = dr.async_get(self.hass)
+        refs = [obj_id]
+        if kind == "box" and obj is not None:
+            refs += [f"{obj_id}#{inp.id}" for inp in obj.inputs]
+        for ref in refs:
+            dev = dev_reg.async_get_device(identifiers={(DOMAIN, ref)})
+            if dev is not None:
+                dev_reg.async_remove_device(dev.id)
 
     async def async_set_settings(self, data: dict[str, Any]) -> None:
         """Merge global settings (e.g. history_months) and persist (no reload)."""
@@ -684,9 +726,6 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             self._unsub_state = None
         self._async_setup_state_tracking()
         self._async_refresh_live()
-
-    def _schedule_reload(self) -> None:
-        self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
 
     # --- restart safety (FR-A5) ----------------------------------------------
     async def _async_recover_runtime(self) -> None:

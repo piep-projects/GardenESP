@@ -15,6 +15,13 @@ DOMAIN: Final = "gardenesp"
 # Entity platforms the integration provides (read-only, FDS §5.12 / FR-X1).
 PLATFORMS: Final[list[Platform]] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
+# Dispatcher signal (per config entry) telling the entity platforms to add the
+# entities of a newly-created object *in place*, so creating a line/source/box no
+# longer needs a full config-entry reload (which briefly unloaded the integration
+# and made the frontend flash "Fehler beim Laden der Integration"). Format with
+# the entry_id.
+SIGNAL_ADD_ENTITIES: Final = DOMAIN + "_add_entities_{}"
+
 # --- Sidebar panel (FDS §2 / §5.1) -------------------------------------------
 # Custom panel served straight from the integration dir (no www/ copy needed).
 PANEL_URL_PATH: Final = "gardenesp"               # sidebar route (/gardenesp)

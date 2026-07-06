@@ -93,11 +93,14 @@ async def async_remove_config_entry_device(
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry.
 
-    The sidebar panel is intentionally **not** removed here: creating a new
-    object schedules a full entry reload (unload → setup), and removing the panel
-    mid-reload kicks the user — who is standing on that very panel — back to the
-    default dashboard. The panel is torn down only on real removal
-    (``async_remove_entry``); the re-register in setup is a guarded no-op.
+    The sidebar panel is intentionally **not** removed here: an entry reload
+    (e.g. HA restart, user-triggered reload, or an options change) runs
+    unload → setup, and removing the panel mid-reload kicks the user — who is
+    standing on that very panel — back to the default dashboard. The panel is
+    torn down only on real removal (``async_remove_entry``); the re-register in
+    setup is a guarded no-op. (Note: GardenESP's own CRUD no longer reloads —
+    creating/deleting an object adds/removes its entities in place; see
+    ``GardenESPCoordinator._add_new_entities`` / ``_remove_ha_devices``.)
     """
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:

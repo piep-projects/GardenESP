@@ -15,10 +15,11 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfVolume
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, INPUT_SOIL_MOISTURE, SOURCE_CISTERN
+from .const import DOMAIN, INPUT_SOIL_MOISTURE, SIGNAL_ADD_ENTITIES, SOURCE_CISTERN
 from .coordinator import GardenESPCoordinator
 from .entity import GardenESPEntity, box_of_ref, child_device_info
 
@@ -82,13 +83,8 @@ SOIL_DESCRIPTION = SensorEntityDescription(
 )
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Create read-only sensor entities from the stored configuration."""
-    coordinator: GardenESPCoordinator = hass.data[DOMAIN][entry.entry_id]
+def _build_entities(coordinator: GardenESPCoordinator) -> list[GardenESPSensor]:
+    """The full desired sensor set derived from the current stored config."""
     cfg = coordinator.config
     entities: list[GardenESPSensor] = []
 
@@ -118,7 +114,36 @@ async def async_setup_entry(
             dev = child_device_info(ref, inp.name, box.id, "sensor")
             entities.append(GardenESPSensor(coordinator, ref, SOIL_DESCRIPTION, dev))
 
-    async_add_entities(entities)
+    return entities
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Create read-only sensor entities from the stored configuration.
+
+    Newly-created objects are added in place via ``SIGNAL_ADD_ENTITIES`` (so a
+    save no longer needs a full entry reload); ``known`` guards against re-adding
+    the existing ones.
+    """
+    coordinator: GardenESPCoordinator = hass.data[DOMAIN][entry.entry_id]
+    known: set[str] = set()
+
+    @callback
+    def _sync() -> None:
+        new = [e for e in _build_entities(coordinator) if e.unique_id not in known]
+        if new:
+            known.update(e.unique_id for e in new)
+            async_add_entities(new)
+
+    _sync()
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, SIGNAL_ADD_ENTITIES.format(entry.entry_id), _sync
+        )
+    )
 
 
 class GardenESPSensor(GardenESPEntity, SensorEntity):
