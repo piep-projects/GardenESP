@@ -167,6 +167,44 @@ class TestGardenControl(unittest.TestCase):
         self.assertIn("emergency_beeren", yaml)
         self.assertIn("delay: 15min", yaml)
 
+    def test_supply_error_inputs_present(self):
+        # roadmap #1: 5/12/24 V supply-error inputs as diagnostic problem sensors.
+        yaml = gen.generate_box_yaml(_box())
+        for needle in (
+            'name: "Versorgungsfehler 5V"', 'name: "Versorgungsfehler 12V"',
+            'name: "Versorgungsfehler 24V"', "id: gc_err_5v",
+            "device_class: problem", "entity_category: diagnostic",
+        ):
+            self.assertIn(needle, yaml)
+        # Pin polarity mirrors the manufacturer firmware (5 V inverted, 24 V no pull-up).
+        self.assertIn("number: 10, mode: { input: true }, inverted: true", yaml)
+        self.assertIn("number: 9, mode: { input: true, pullup: false }, inverted: false", yaml)
+
+    def test_loop_error_channels_present(self):
+        # roadmap #1: 4-20 mA loop-error on ADS A2/A3 → problem binary_sensors,
+        # raw voltages kept internal (id only).
+        yaml = gen.generate_box_yaml(_box())
+        self.assertIn('name: "4-20mA CH1 Loop-Fehler"', yaml)
+        self.assertIn("multiplexer: A2_GND", yaml)
+        self.assertIn("multiplexer: A3_GND", yaml)
+        self.assertIn("id: gc_loop1_v", yaml)
+        self.assertIn("id(gc_loop1_v).state > 2.0", yaml)
+
+    def test_error_led_driven_by_interval(self):
+        # roadmap #1: the Error-LED (GPIO2) is actually driven, not just emitted.
+        yaml = gen.generate_box_yaml(_box())
+        self.assertIn("interval:", yaml)
+        self.assertIn("interval: 1s", yaml)
+        self.assertIn("id(gc_error_led).turn_on();", yaml)
+        self.assertIn("id(gc_error_led).turn_off();", yaml)
+
+    def test_diagnostics_present_without_assigned_inputs(self):
+        # The binary_sensor block (and thus the diagnostics) exists even with no
+        # rain/switch inputs assigned.
+        yaml = gen.generate_box_yaml(_box(inputs=[]))
+        self.assertIn("binary_sensor:", yaml)
+        self.assertIn("id: gc_err_5v", yaml)
+
 
 class TestEsp32Wroom(unittest.TestCase):
     def test_outputs_use_direct_gpio(self):
@@ -174,6 +212,13 @@ class TestEsp32Wroom(unittest.TestCase):
         yaml = gen.generate_box_yaml(box)
         self.assertNotIn("mcp23017", yaml)
         self.assertIn("number: GPIO16", yaml)
+
+    def test_no_gardencontrol_board_diagnostics(self):
+        # roadmap #1 diagnostics are GardenControl-specific (board expanders/ADS) —
+        # the generic WROOM template must not contain them.
+        yaml = gen.generate_box_yaml(_box(hw_type="esp32_wroom"))
+        for absent in ("Versorgungsfehler", "Loop-Fehler", "gc_err_5v", "gc_loop1_v", "gc_error_led"):
+            self.assertNotIn(absent, yaml)
 
     def test_pressure_falls_back_to_adc(self):
         box = _box(hw_type="esp32_wroom", inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne"}])

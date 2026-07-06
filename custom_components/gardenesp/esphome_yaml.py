@@ -405,6 +405,13 @@ DIAG_WIFI_NAME = "WLAN-Signal"
 DIAG_BOOT_NAME = "Neustarts gesamt"
 DIAG_RESTART_NAME = "Neustart"
 DIAG_EMERGENCY_NAME = "Notabschaltungen gesamt"
+# GardenControl-only board self-diagnostics (roadmap #1): supply-voltage error inputs
+# and 4-20 mA loop-error detection, both driving the on-board Error-LED (GPIO2).
+DIAG_ERR_5V_NAME = "Versorgungsfehler 5V"
+DIAG_ERR_12V_NAME = "Versorgungsfehler 12V"
+DIAG_ERR_24V_NAME = "Versorgungsfehler 24V"
+DIAG_ERR_LOOP1_NAME = "4-20mA CH1 Loop-Fehler"
+DIAG_ERR_LOOP2_NAME = "4-20mA CH2 Loop-Fehler"
 
 
 def _diag_button() -> list[str]:
@@ -464,6 +471,81 @@ def _diag_sensor_entries() -> list[str]:
         "    accuracy_decimals: 0",
         "    state_class: total_increasing",
         "    update_interval: 60s",
+    ]
+
+
+def _gc_error_binsensors() -> list[str]:
+    """GardenControl-only board self-diagnostics (roadmap #1): ``binary_sensor``
+    list-items for the three supply-voltage error inputs (5/12/24 V, on
+    ``mcp23017_top``) plus two 4-20 mA loop-error detectors (open/shorted current
+    loop → the raw ADS A2/A3 voltage rises above ~2 V). All are ``device_class:
+    problem`` diagnostic entities; together they drive the on-board Error-LED (see
+    :func:`_gc_error_led_interval`). Pin polarity mirrors the manufacturer firmware
+    (5 V inverted, 24 V no pull-up)."""
+    L = ["# ─── Board self-diagnostics: supply + 4-20mA loop errors (roadmap #1) ──"]
+    for name, sid, num, mode, inverted in [
+        (DIAG_ERR_5V_NAME, "gc_err_5v", 10, "{ input: true }", "true"),
+        (DIAG_ERR_12V_NAME, "gc_err_12v", 8, "{ input: true }", "false"),
+        (DIAG_ERR_24V_NAME, "gc_err_24v", 9, "{ input: true, pullup: false }", "false"),
+    ]:
+        pin = f"{{ mcp23xxx: mcp23017_top, number: {num}, mode: {mode}, inverted: {inverted} }}"
+        L += [
+            "  - platform: gpio",
+            f'    name: "{name}"',
+            f"    id: {sid}",
+            "    device_class: problem",
+            "    entity_category: diagnostic",
+            f"    pin: {pin}",
+        ]
+    for name, sid, raw in [
+        (DIAG_ERR_LOOP1_NAME, "gc_loop1_err", "gc_loop1_v"),
+        (DIAG_ERR_LOOP2_NAME, "gc_loop2_err", "gc_loop2_v"),
+    ]:
+        L += [
+            "  - platform: template",
+            f'    name: "{name}"',
+            f"    id: {sid}",
+            "    device_class: problem",
+            "    entity_category: diagnostic",
+            f"    lambda: 'return id({raw}).state > 2.0;'",
+        ]
+    return L
+
+
+def _gc_loop_error_adc_sensors() -> list[str]:
+    """``sensor:`` list-items for the raw 4-20 mA loop-error voltages (ADS A2/A3).
+    Kept ``internal`` (id only, not exposed) — the user-facing signal is the
+    :func:`_gc_error_binsensors` ``problem`` binary_sensor, not a raw voltage."""
+    L: list[str] = []
+    for sid, mux in [("gc_loop1_v", "A2_GND"), ("gc_loop2_v", "A3_GND")]:
+        L += [
+            "  - platform: ads1115",
+            f"    multiplexer: {mux}",
+            "    gain: 2.048",
+            f"    id: {sid}",
+            "    internal: true",
+            "    update_interval: 3s",
+        ]
+    return L
+
+
+def _gc_error_led_interval() -> list[str]:
+    """Top-level ``interval:`` that drives the on-board Error-LED (GPIO2) from the
+    supply-voltage and 4-20 mA loop-error inputs, on-device and HA-independent
+    (roadmap #1). Without this the Error-LED is emitted but never lit."""
+    return [
+        "",
+        "# ─── Error-LED driver: supply / loop faults (roadmap #1) ────────────────",
+        "interval:",
+        "  - interval: 1s",
+        "    then:",
+        "      - lambda: |-",
+        "          if (id(gc_err_5v).state || id(gc_err_12v).state || id(gc_err_24v).state ||",
+        "              id(gc_loop1_v).state > 2.0 || id(gc_loop2_v).state > 2.0) {",
+        "            id(gc_error_led).turn_on();",
+        "          } else {",
+        "            id(gc_error_led).turn_off();",
+        "          }",
     ]
 
 
@@ -833,8 +915,11 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
     # Binary inputs (BIN1–3): each is a binary_sensor (rain/switch) unless an S0 input
     # is assigned to it (then a pulse_counter, emitted in the sensor section below).
     bin_label = {"GPIO14": "BIN1", "GPIO16": "BIN2", "GPIO17": "BIN3"}
+    # The binary_sensor block is always present (board self-diagnostics live here),
+    # optionally preceded by the assigned rain/switch inputs.
+    L += ["", "binary_sensor:"]
     if binary_pins:
-        L += ["", "# ─── Binary inputs (rain / switch) ──────────────────────────────────────", "binary_sensor:"]
+        L += ["# ─── Binary inputs (rain / switch) ──────────────────────────────────────"]
         for pin in binary_pins:
             ip = inputs.get(pin) or {}
             nm = ascii_fold(ip.get("name") or bin_label[pin])
@@ -847,6 +932,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
                 f'    name: "{nm}"',
                 "    filters: [ { delayed_on: 10ms } ]",
             ]
+    L += _gc_error_binsensors()  # supply-voltage + 4-20mA loop errors (roadmap #1)
     L += ["", "# ─── Analog inputs (4× ADC 0-12V + 2× 4-20mA) ───────────────────────────", "sensor:"]
     adc_label = {"GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4"}
     for pin in _GC_ADC_PINS:
@@ -888,7 +974,9 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             "    unit_of_measurement: pulses",
             '    total: { name: "' + nm + ' total" }',
         ]
+    L += _gc_loop_error_adc_sensors()  # raw A2/A3 loop-error voltages (roadmap #1)
     L += _diag_sensor_entries()  # WLAN + boot counter (FR-S13)
+    L += _gc_error_led_interval()  # drive Error-LED from supply/loop faults (roadmap #1)
     return "\n".join(L).rstrip() + "\n"
 
 

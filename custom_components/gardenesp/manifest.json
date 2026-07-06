@@ -10,5 +10,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/piep-projects/GardenESP/issues",
   "requirements": [],
-  "version": "0.13.57"
+  "version": "0.13.58"
 }

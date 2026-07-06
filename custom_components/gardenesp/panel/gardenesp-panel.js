@@ -971,6 +971,7 @@ class GardenEspPanel extends HTMLElement {
               <div class="zonebody">
                 <div class="zonestat">${this._onlineChip(b)}${this._fwChip(b)}</div>
                 ${this._boxDeviceMeta(b)}
+                ${this._boardFaults(b)}
                 ${this._boxDiag(b)}
                 ${outs ? `<div class="grouplabel">Ausgänge</div>${outs}` : ""}
                 ${ins ? `<div class="grouplabel">Eingänge</div>${ins}` : ""}
@@ -1008,6 +1009,22 @@ class GardenEspPanel extends HTMLElement {
     if (ip) parts.push(esc(ip));
     if (ver) parts.push("v " + esc(ver));
     return parts.length ? `<div class="zonemeta">${parts.join(" · ")}</div>` : "";
+  }
+  // GardenControl board self-diagnostics (roadmap #1): the 5 fixed fault sensors
+  // (supply 5/12/24 V + 4-20 mA loop CH1/CH2) as flowing text, each followed by a
+  // green dot (ok) / red dot (fault) / grey dot (unavailable). Entity_ids come
+  // pre-resolved from the coordinator; green/red is decided here from live state.
+  _boardFaults(b) {
+    if (b.enabled === false) return "";
+    const faults = this._val(b.id, "board_faults");
+    if (!faults || !faults.length) return "";
+    const items = faults.map((f) => {
+      const st = this._entityState(f.entity);
+      const cls = !st ? "na" : st.state === "on" ? "bad" : "ok";
+      const title = !st ? "unbekannt" : st.state === "on" ? "Störung" : "ok";
+      return `${esc(f.label)} <span class="faultdot ${cls}" title="${title}"></span>`;
+    });
+    return `<div class="zonemeta faultrow"><ha-icon class="diagicon" icon="mdi:alert-decagram-outline" title="Board-Selbstdiagnose"></ha-icon>${items.join(" · ")}</div>`;
   }
   // Board diagnostics (FR-S13): WLAN signal + restarts today/yesterday — neutral
   // live info (System B), not an Ampel status. Missing values are simply omitted.
@@ -2259,6 +2276,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
 .zonemeta { color: var(--secondary-text-color); font-size: 12px; margin-top: 3px; word-break: break-word; }
 .diagrow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .diagicon { --mdc-icon-size: 15px; color: var(--secondary-text-color); vertical-align: -3px; margin-right: 1px; }
+.faultrow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.faultdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: 0; margin-left: 1px; }
+.faultdot.ok { background: var(--success-color, #43a047); }
+.faultdot.bad { background: var(--error-color, #e53935); }
+.faultdot.na { background: var(--disabled-text-color, #9e9e9e); }
 /* In-Betrieb-Schalter: beschriftetes Pill (Zustand + Farbe + Bedienung in einem) */
 .boxswitch { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
   padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }

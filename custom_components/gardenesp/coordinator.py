@@ -40,6 +40,7 @@ from . import calc, drift, esphome_yaml, gates, ids, state
 from .const import (
     DOMAIN,
     HISTORY_DEFAULT_MONTHS,
+    HW_GARDENCONTROL,
     INPUT_BUTTON,
     INPUT_PULSE_METER,
     LINE_KIND_SWITCH,
@@ -287,6 +288,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         total = len(box.outputs) + len(box.inputs)
         entry_id = self._esphome_entry_id_for_box(box)
         if entry_id is None:
+            self._resolve_board_faults(box, {})  # device not added yet → clear
             return 0, total  # device not added to HA yet → nothing to match
         reg = er.async_get(self.hass)
         # index: (domain, folded original_name) → entity_id
@@ -311,7 +313,30 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             if eid:
                 inp.entity = eid
                 resolved += 1
+        self._resolve_board_faults(box, index)
         return resolved, total
+
+    # GardenControl board self-diagnostics (roadmap #1): the 5 fixed fault
+    # binary_sensors (supply 5/12/24 V + 4-20 mA loop CH1/CH2). We only resolve
+    # their entity_ids here (same registry index as outputs/inputs) and publish
+    # them for the panel; the green/red decision is made in the frontend from the
+    # live entity state — the coordinator does no fault interpretation.
+    def _resolve_board_faults(self, box: Box, index: dict[tuple[str, str], str]) -> None:
+        if box.hw_type != HW_GARDENCONTROL:
+            return
+        labels = (
+            ("5V", esphome_yaml.DIAG_ERR_5V_NAME),
+            ("12V", esphome_yaml.DIAG_ERR_12V_NAME),
+            ("24V", esphome_yaml.DIAG_ERR_24V_NAME),
+            ("4-20mA CH1", esphome_yaml.DIAG_ERR_LOOP1_NAME),
+            ("4-20mA CH2", esphome_yaml.DIAG_ERR_LOOP2_NAME),
+        )
+        faults = [
+            {"label": label, "entity": eid}
+            for label, name in labels
+            if (eid := index.get(("binary_sensor", esphome_yaml.ascii_fold(name))))
+        ]
+        self._set_value(box.id, "board_faults", faults)
 
     def _resolve_all_boxes(self) -> None:
         """Self-heal stored entity refs for every box (called once on setup)."""
