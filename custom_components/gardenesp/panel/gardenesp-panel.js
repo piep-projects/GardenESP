@@ -1572,11 +1572,18 @@ class GardenEspPanel extends HTMLElement {
       <div class="modal wiremodal" data-stop-prop>
         <div class="modalhead"><h2>🔌 ${title}</h2>
           <button class="btn ghost" data-closewiring>✕</button></div>
-        <div class="wirebody">${inner}${notes}</div>
+        <div class="wirebody">${this._wireDisclaimer()}${inner}${notes}</div>
         <div class="actions">
           ${d.supported ? `<button class="btn primary" data-printwiring>Drucken</button>` : ""}
           <button class="btn" data-closewiring>Schließen</button></div>
       </div></div>`;
+  }
+  // Legal/safety disclaimer shown on every wiring diagram (modal + print): the
+  // lens is a generated overview aid, not an execution-ready plan.
+  _wireDisclaimer() {
+    return `<div class="wiredisclaimer">⚠ Automatisch generierte Übersichts-Hilfe. `
+      + `Vor der Ausführung von einer Elektrofachkraft prüfen und ggf. anpassen — `
+      + `verbindlich sind das Board-Handbuch und die Gerätedatenblätter.</div>`;
   }
   // Pick the renderer by layout: WROOM = pin-header SVG, GardenControl = screw-
   // terminal board SVG. Both print cleanly (innerHTML copied into _printWiring).
@@ -1591,22 +1598,24 @@ class GardenEspPanel extends HTMLElement {
   _wireGcSvg(d) {
     const g = d.grid || { top_upper: [], top_lower: [], bottom: [] };
     const trunc = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s || "");
-    const W = 700, H = 490, MX = 20, GAP = 36, COLW = 52;          // 5:3.5 landscape
+    const W = 700, TOP = 48, H = 628, MX = 20, GAP = 36, COLW = 52; // +TOP headroom for tall labels
     const colCX = (i) => MX + i * COLW + (i >= 6 ? GAP : 0) + COLW / 2;
     const yU = 142, yL = 166;                                       // top screw rows
     const bodyTop = yL + 18, BODYH = 120, bodyBot = bodyTop + BODYH;
     const yB = bodyBot + 20;                                        // bottom valve screws
     const topName = 128, botName = yB + 14;                         // card baselines
+    const RAIL = "#6d4c41";                                         // shared return/supply rail
     const colOf = (a, c) => c.power || !a ? "" : (a.role === "sensor" ? "#1565c0" : "#2e7d32");
     const screw = (cx, cy, col) =>
       `<circle cx="${cx}" cy="${cy}" r="6" class="gcscrew"${col ? ` style="stroke:${col};stroke-width:2"` : ""}/>` +
       `<line x1="${cx - 3}" y1="${cy - 3}" x2="${cx + 3}" y2="${cy + 3}" class="gcslot"/>`;
     // Boxed device label (analogous to the WROOM card) drawn in a rotated frame so it
     // reads vertically off the narrow terminal column; ``px/py`` is the screw-side end.
+    const cardLabel = (a) => (a.short_id ? a.short_id + " " : "") + trunc(a.name, 16);
+    const cardW = (a) => Math.round(cardLabel(a).length * 7.2 + 18);   // fit the 11px label text
     const card = (px, py, rot, a) => {
       const cls = a.role === "sensor" ? "in" : "out";
-      const label = (a.short_id ? a.short_id + " " : "") + trunc(a.name, 16);
-      const w = Math.round(label.length * 6.3 + 10);
+      const label = cardLabel(a), w = cardW(a);
       return `<g transform="rotate(${rot} ${px} ${py})">` +
         `<rect x="${px + 3}" y="${py - 9}" width="${w}" height="17" rx="3" class="gccard ${cls}"/>` +
         `<text x="${px + 9}" y="${py + 3}" class="gcdev ${cls}">${esc(label)}</text></g>`;
@@ -1622,30 +1631,73 @@ class GardenEspPanel extends HTMLElement {
     }
     svg += `<text x="${midX}" y="${midY + 40}" class="gccap" text-anchor="middle">Ventile</text>`;
 
-    // top screw rows: assigned terminals get a wire up to a boxed label; unassigned
-    // (incl. power) just the screw + terminal label. Per-row x-offset avoids collisions.
+    const tu = g.top_upper || [], tl = g.top_lower || [];
+    // Smooth brown lead (supply/return wire) between two points.
+    const lead = (x1, y1, x2, y2, w) =>
+      `<path d="M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}" style="stroke:${RAIL};stroke-width:${w || 1.5};fill:none"/>`;
+
+    // Both top screw rows are drawn. An assigned terminal gets a dark **signal** wire up to
+    // its boxed label PLUS a brown **supply/return** lead from the card to the nearest paired
+    // pad (4-20 mA IN→24V, relay coil R→24VAC, ADC→GND). Active rail pads get the rail colour.
     const drawTop = (c, i, row) => {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment, cy = row === "U" ? yU : yL;
-      svg += screw(cx, cy, colOf(a, c));
-      svg += `<text x="${cx}" y="${cy + 14}" class="gctlbl${a ? " on" : ""}" text-anchor="middle">${esc(c.label)}</text>`;
+      const railOn = c.rail && c.active;
+      svg += screw(cx, cy, railOn ? RAIL : colOf(a, c));
+      svg += `<text x="${cx}" y="${cy + 14}" class="gctlbl${a || railOn ? " on" : ""}"${railOn ? ` style="fill:${RAIL}"` : ""} text-anchor="middle">${esc(c.label)}</text>`;
       if (!a) return;
       const px = cx + (row === "U" ? -13 : 13);
       svg += `<line x1="${cx}" y1="${cy - 6}" x2="${px}" y2="${topName}" class="gcwire"/>` + card(px, topName, -90, a);
+      if (a.ret) {  // supply/return lead from the card to the nearest pad carrying that label
+        const cands = [];
+        tu.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yU, idx }); });
+        tl.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yL, idx }); });
+        if (cands.length) {
+          const t = cands.sort((p, q) => Math.abs(p.idx - i) - Math.abs(q.idx - i))[0];
+          svg += lead(px, topName - cardW(a) + 2, t.x, t.y - 6, 1.6);  // start at the label's far (top) end
+        }
+      }
     };
     (g.top_upper || []).forEach((c, i) => drawTop(c, i, "U"));
     (g.top_lower || []).forEach((c, i) => drawTop(c, i, "L"));
 
-    // bottom valve screw row (single row): wire down to a boxed label
+    // Bottom valve row: a dark signal wire to each card; the **COM return leaves the card**
+    // (not the screw) into a COM distribution block bottom-right, then one diagonal line from
+    // the block to a COM pad. Only assigned valves join the block.
+    const block = { x: W - 210, y: 470, w: 190, h: 82 };
+    const vlist = [];
     (g.bottom || []).forEach((c, i) => {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment;
       svg += screw(cx, yB, colOf(a, c));
       svg += `<text x="${cx}" y="${yB - 10}" class="gctlbl${a ? " on" : ""}" text-anchor="middle">${esc(c.label)}</text>`;
       if (!a) return;
+      const cw = cardW(a);                              // card length (hangs down from botName)
       svg += `<line x1="${cx}" y1="${yB + 6}" x2="${cx}" y2="${botName}" class="gcwire"/>` + card(cx, botName, 90, a);
+      vlist.push({ cx, tipY: botName + cw + 2 });        // COM lead starts at the card's far tip
     });
-    return `<svg viewBox="0 0 ${W} ${H}" class="wiresvg" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+    if (vlist.length) {
+      svg += `<rect x="${block.x}" y="${block.y}" width="${block.w}" height="${block.h}" rx="6" style="fill:#efebe9;stroke:${RAIL};stroke-width:1.6"/>`;
+      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 20}" style="fill:${RAIL};font-weight:700;font-size:11px" text-anchor="middle">COM-Verteilerblock</text>`;
+      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 36}" style="fill:${RAIL};font-size:9px" text-anchor="middle">Rückleiter aller Ventile</text>`;
+      vlist.forEach((v, k) => {
+        const ty = block.y + 14 + ((k + 1) * (block.h - 20)) / (vlist.length + 1);
+        svg += lead(v.cx, v.tipY, block.x, ty, 1.5);
+      });
+      // one diagonal line from the block up to the nearest (rightmost) COM pad
+      const comIdx = [4, 5, 6, 7].filter((i) => tu[i] && tu[i].label === "COM").sort((p, q) => colCX(q) - colCX(p))[0];
+      if (comIdx != null) {
+        const sx = colCX(comIdx);
+        svg += `<path d="M${block.x + block.w / 2},${block.y} C${block.x},${block.y - 90} ${sx + 30},${yU + 120} ${sx},${yU + 6}" style="stroke:${RAIL};stroke-width:2.4;fill:none"/>`;
+        svg += `<text x="${sx + 14}" y="${yU + 96}" style="fill:${RAIL};font-weight:700;font-size:11px">→ COM</text>`;
+      }
+    }
+
+    // legend
+    const gleg = [["#2e7d32", "Ausgang"], ["#1565c0", "Eingang/Sensor"], ["#37474f", "Signal"], [RAIL, "Versorgung/Rückleiter"]];
+    let gx = MX; const gy = H - 12;
+    const glegend = gleg.map(([c, t]) => { const s = `<rect x="${gx}" y="${gy - 9}" width="11" height="11" fill="${c}"/><text x="${gx + 16}" y="${gy}" class="legtxt">${esc(t)}</text>`; gx += 30 + t.length * 6.4; return s; }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" class="wiresvg" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,${TOP})">${svg}</g>${glegend}</svg>`;
   }
   // Build the board schematic: faithful 38-pin chip (USB down, pins 1↓→19↑ per
   // side, cap-coloured) with assigned valves/sensors as cards wired to their GPIO
@@ -1721,8 +1773,11 @@ class GardenEspPanel extends HTMLElement {
     if (!win) { this._toast("Pop-up blockiert — Druck nicht möglich."); return; }
     win.document.write(`<!doctype html><html><head><title>Verdrahtung ${esc(box.name || "")}</title>
       <style>${this._wireStyle()} body{margin:16px;font-family:sans-serif}h1{font-size:16px}
-      ul{font-size:12px;color:#444}</style></head><body>
+      ul{font-size:12px;color:#444}
+      .wiredisclaimer{margin:0 0 12px;padding:8px 10px;border:1px solid #e0a800;
+        background:#fff8e1;color:#7a5c00;font-size:12px;border-radius:4px}</style></head><body>
       <h1>🔌 Verdrahtung — Steuergerät ${esc(box.label ? String(box.label).toUpperCase() + " " : "")}${esc(box.name || "")}</h1>
+      ${this._wireDisclaimer()}
       ${this._wireDiagram(d)}
       <ul>${(d.notes || []).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       <script>window.onload=function(){window.print();}<\/script></body></html>`);
@@ -2280,6 +2335,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
 .wiresvg .gcdev.out { fill: #2e7d32; }
 .wiresvg .gcdev.in { fill: #1565c0; }
 .wirenotes { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--secondary-text-color); }
+.wiredisclaimer { margin: 0 0 12px; padding: 8px 10px; border: 1px solid #e0a800;
+  background: rgba(255, 193, 7, .12); color: var(--primary-text-color); font-size: 12px;
+  border-radius: 4px; line-height: 1.4; }
 /* Topologie tab (read-only hydraulic lens) — inline-SVG schematic
    (text-sized nodes per column Box·Quelle·Pumpe·Ventil·Linie, elbow-wired,
    echoing the Verdrahtungs-Lens). */

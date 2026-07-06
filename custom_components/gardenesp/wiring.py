@@ -269,17 +269,23 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
             "role": o.get("type") or "output",
             "kind": "output",
             "short_id": f"{label}{ch}" if label and ch else "",  # Ausgang-ID A5 (FDS §3)
+            # shared return: valves → COM, relay coil → 24VAC (contact/load side not drawn)
+            "ret": "24VAC" if term in ("R1", "R2") else "COM",
         })
     in_by_term: dict[str, dict[str, Any]] = {}
     for i in box.get("inputs") or []:
         term = _GC_INPUT_TERMINAL.get(str(i.get("pin") or "").strip().upper())
         if not term:
             continue
+        # return/supply pairing: 4-20 mA loop (IN) needs its 24V supply pad, 0-12 V
+        # analog (ADC) needs GND; binary inputs (BIN) carry no drawn return.
+        ret = "24V" if term in ("IN1", "IN2") else ("GND" if term.startswith("ADC") else "")
         in_by_term.setdefault(term, {
             "name": (i.get("name") or "").strip() or i.get("id"),
             "role": "sensor",
             "kind": i.get("kind") or "input",
             "short_id": "",
+            "ret": ret,
         })
 
     def _c(lbl: str, fn: str, power: bool = False) -> dict[str, Any]:
@@ -291,8 +297,8 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     # (each split into a left + right 6-way block) and one valve row on the BOTTOM.
     grid = {
         "top_upper": [
-            _c("IN1", "4-20 mA Signal 1"), _c("VCC", "Sensor-Versorgung", True),
-            _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung", True),
+            _c("IN1", "4-20 mA Signal 1"), _c("24V", "Sensor-Versorgung (24 V DC)", True),
+            _c("IN2", "4-20 mA Signal 2"), _c("24V", "Sensor-Versorgung (24 V DC)", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("R1", "Relais 1 (230 V)"), _c("R2", "Relais 2 (230 V)"),
@@ -308,12 +314,36 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
         ],
         "bottom": [_c(f"V{n}", f"Ventil {n} (24 VAC)") for n in range(1, 13)],
     }
+
+    # Mark the shared return/supply rails that are actually in use so the renderer can
+    # draw a bus + emphasise the pads: valves→COM, relay coil→24VAC, 4-20 mA IN→24V,
+    # 0-12 V ADC→GND. ``active`` gates the emphasis; unused rails stay neutral.
+    any_valve = any(c["assignment"] for c in grid["bottom"])
+    any_relay = "R1" in out_by_term or "R2" in out_by_term
+    any_adc = any(t in in_by_term for t in ("ADC1", "ADC2", "ADC3", "ADC4"))
+    rail_kind = {"COM": "com", "24VAC": "coil", "GND": "gnd"}
+    rail_active = {"COM": any_valve, "24VAC": any_relay, "GND": any_adc}
+    for c in grid["top_upper"] + grid["top_lower"]:
+        if c["label"] in rail_kind:
+            c["rail"] = rail_kind[c["label"]]
+            c["active"] = rail_active[c["label"]]
+    # the two IN supply pads (24V) pair with their adjacent IN1/IN2 by position
+    grid["top_upper"][1]["rail"] = grid["top_upper"][3]["rail"] = "insupply"
+    grid["top_upper"][1]["active"] = "IN1" in in_by_term
+    grid["top_upper"][3]["active"] = "IN2" in in_by_term
+
     devices = [c["assignment"] for col in grid.values() for c in col if c["assignment"]]
     notes = [
         "Klemmenplan nach dem echten GardenControl-Board (Silkscreen-Labels).",
-        "Unten V1–V12 = Ventil-Ausgänge (24 VAC, gemeinsamer COM); R1/R2 = Relais für 230-V-Geräte (z. B. Pumpen).",
-        "Oben links IN1/IN2 = 4-20-mA-Sensoren (eigene 24-V-Versorgung), BIN1–3 = Binär 24 V, ADC1–4 = 0–12 V.",
-        "Versorgung: 24-VAC-Trafo (≥ 3 A); externe 3-A-Sicherung ist Pflicht. Schematische Belegungshilfe.",
+        "Ventile V1–V12: geschaltete Ader an Vn, gemeinsamer Rückleiter an COM (Sammelschiene).",
+        "Relais R1/R2 (Koppelrelais): Spule an Relais-Ausgang + 24VAC; die potentialfreie "
+        "Kontaktseite (z. B. 230-V-Pumpe) ist NICHT dargestellt — extern, Elektrofachkraft.",
+        "4-20-mA-Sensoren an IN1/IN2: 2-Draht — Signal an INx, Versorgung (+) an das "
+        "nebenstehende 24V. Kein GND (Stromschleife schließt intern).",
+        "Analog-/DC-Sensoren an ADC1–4 (0–12 V): Sensor-Minus/GND an die GND-Klemme, "
+        "Versorgung von +5V/+12V/+24V.",
+        "BIN1–3 = Binär 24 V (Regen/S0/Schalter). Versorgung: 24-VAC-Trafo (≥ 3 A), externe "
+        "3-A-Sicherung Pflicht.",
     ]
     return {
         "box": box_view, "supported": True, "layout": "terminals",

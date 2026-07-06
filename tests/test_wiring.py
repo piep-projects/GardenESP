@@ -214,6 +214,42 @@ class GardenControlTest(unittest.TestCase):
         self.assertEqual(names, {"Tomaten", "Eheim Pumpe", "Springbrunnen",
                                  "Zisterne Pegel", "RainClik", "Beet"})
 
+    def test_in_supply_relabelled_24v(self):
+        # board photo (Anschluss4-20mA): the IN-adjacent supply pads read "24V", not "VCC"
+        labels = [c["label"] for c in self.out["grid"]["top_upper"]]
+        self.assertEqual(labels[1], "24V")
+        self.assertEqual(labels[3], "24V")
+
+    def test_device_return_pairing(self):
+        by_name = {d["name"]: d for d in self.out["devices"]}
+        self.assertEqual(by_name["Tomaten"]["ret"], "COM")          # valve → COM
+        self.assertEqual(by_name["Eheim Pumpe"]["ret"], "24VAC")    # relay coil → 24VAC
+        self.assertEqual(by_name["Springbrunnen"]["ret"], "24VAC")
+        self.assertEqual(by_name["Zisterne Pegel"]["ret"], "24V")   # 4-20 mA IN → 24V supply
+        self.assertEqual(by_name["Beet"]["ret"], "GND")             # 0-12 V ADC → GND
+        self.assertEqual(by_name["RainClik"]["ret"], "")            # binary → no drawn return
+
+    def test_active_rails(self):
+        terms = self._terminals()
+        # box has a valve, relays and an ADC sensor → those rails are active…
+        self.assertEqual(terms["COM"]["rail"], "com")
+        self.assertTrue(terms["COM"]["active"])
+        self.assertTrue(terms["24VAC"]["active"])
+        self.assertTrue(terms["GND"]["active"])
+        # …and IN1 is used, IN2 is not → only IN1's supply pad is active
+        self.assertTrue(self.out["grid"]["top_upper"][1]["active"])
+        self.assertFalse(self.out["grid"]["top_upper"][3]["active"])
+
+    def test_rails_inactive_without_users(self):
+        box = _gc_box()
+        box["outputs"] = []   # no valves/relays
+        box["inputs"] = []    # no ADC/IN
+        out = wiring.build(_config(box), "box_g")
+        terms = {c["label"]: c for col in out["grid"].values() for c in col if c["label"]}
+        self.assertFalse(terms["COM"]["active"])
+        self.assertFalse(terms["24VAC"]["active"])
+        self.assertFalse(terms["GND"]["active"])
+
 
 if __name__ == "__main__":
     unittest.main()
