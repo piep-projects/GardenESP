@@ -1615,7 +1615,7 @@ class GardenEspPanel extends HTMLElement {
   _wireGcSvg(d) {
     const g = d.grid || { top_upper: [], top_lower: [], bottom: [] };
     const trunc = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + "…" : s || "");
-    const W = 700, TOP = 48, H = 628, MX = 20, GAP = 36, COLW = 52; // +TOP headroom for tall labels
+    const W = 700, MX = 20, GAP = 36, COLW = 52;
     const colCX = (i) => MX + i * COLW + (i >= 6 ? GAP : 0) + COLW / 2;
     const yU = 142, yL = 166;                                       // top screw rows
     const bodyTop = yL + 18, BODYH = 120, bodyBot = bodyTop + BODYH;
@@ -1628,8 +1628,14 @@ class GardenEspPanel extends HTMLElement {
       `<line x1="${cx - 3}" y1="${cy - 3}" x2="${cx + 3}" y2="${cy + 3}" class="gcslot"/>`;
     // Boxed device label (analogous to the WROOM card) drawn in a rotated frame so it
     // reads vertically off the narrow terminal column; ``px/py`` is the screw-side end.
-    const cardLabel = (a) => (a.short_id ? a.short_id + " " : "") + trunc(a.name, 16);
-    const cardW = (a) => Math.round(cardLabel(a).length * 7.2 + 18);   // fit the 11px label text
+    // The box is sized from the *measured* text, so the name may run as long as it fits.
+    const cardLabel = (a) => (a.short_id ? a.short_id + " " : "") + trunc(a.name, 24);
+    const cwCache = new Map();
+    const cardW = (a) => {
+      if (!cwCache.has(a)) cwCache.set(a, Math.round(textWidth(cardLabel(a), GC_DEV_FONT) * 1.06) + 15);
+      return cwCache.get(a);
+    };
+    const cardTopY = (a) => topName - 3 - cardW(a);   // far (narrow) end of a top card
     const card = (px, py, rot, a) => {
       const cls = a.role === "sensor" ? "in" : "out";
       const label = cardLabel(a), w = cardW(a);
@@ -1638,24 +1644,46 @@ class GardenEspPanel extends HTMLElement {
         `<text x="${px + 9}" y="${py + 3}" class="gcdev ${cls}">${esc(label)}</text></g>`;
     };
 
-    // body
+    // Geometry depends on the label lengths: reserve head-room for the tallest top card
+    // plus the return-bus lanes above it, and push the COM block below the longest valve
+    // card. The canvas grows instead of the drawing colliding.
+    const tuAll = g.top_upper || [], tlAll = g.top_lower || [], boAll = g.bottom || [];
+    const assigned = (row) => row.filter((c) => c && c.label && c.assignment).map((c) => c.assignment);
+    const topA = assigned(tuAll).concat(assigned(tlAll)), botA = assigned(boAll);
+    const topMax = topA.length ? Math.max(...topA.map(cardW)) : 0;
+    const nRet = topA.filter((a) => a.ret).length;
+    const busTop = topName - 3 - topMax - 10;        // first return-bus lane, above every card
+    const TOP = Math.max(28, 12 - (busTop - 4 * Math.max(0, nRet - 1)));
+    const botMax = botA.length ? Math.max(...botA.map(cardW)) : 0;
+    const maxTip = botA.length ? botName + botMax + 2 : botName;
+    const fanY = maxTip + 10;                        // COM fan runs below every valve card
+    const block = { x: W - 210, y: fanY + 14, w: 190, h: 82 };
+    const contentBot = botA.length ? block.y + block.h : Math.max(yB + 24, maxTip);
+    const H = TOP + contentBot + 26;
+
+    // body — the silkscreen (caption + LED strip) is overlaid *after* the wires, so the
+    // COM bus crossing the board passes behind the lettering instead of striking it out.
     let svg = `<rect x="${MX}" y="${bodyTop}" width="${W - 2 * MX}" height="${BODYH}" rx="12" class="chip"/>`;
     const midX = W / 2, midY = bodyTop + BODYH / 2;
-    svg += `<text x="${midX}" y="${midY - 4}" class="chiplbl" text-anchor="middle">GardenControl</text>`;
+    // halo copy under each caption (chip-coloured outline) so a wire passing behind the
+    // lettering is interrupted — works in every renderer, unlike CSS ``paint-order``.
+    const silkText = (x, y, cls, t) =>
+      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle" style="stroke:#eceff1;stroke-width:4;fill:none">${t}</text>` +
+      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle">${t}</text>`;
+    let silk = silkText(midX, midY - 4, "chiplbl", "GardenControl");
     for (let n = 1; n <= 12; n++) {
       const cx = midX - 12 * 9 + (n - 0.5) * 18;
-      svg += `<text x="${cx}" y="${midY + 16}" class="gclednum" text-anchor="middle">${n}</text><circle cx="${cx}" cy="${midY + 24}" r="3" class="gcled"/>`;
+      silk += `<text x="${cx}" y="${midY + 16}" class="gclednum" text-anchor="middle">${n}</text><circle cx="${cx}" cy="${midY + 24}" r="3" class="gcled"/>`;
     }
-    svg += `<text x="${midX}" y="${midY + 40}" class="gccap" text-anchor="middle">Ventile</text>`;
+    silk += silkText(midX, midY + 40, "gccap", "Ventile");
 
-    const tu = g.top_upper || [], tl = g.top_lower || [];
-    // Smooth brown lead (supply/return wire) between two points.
-    const lead = (x1, y1, x2, y2, w) =>
-      `<path d="M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}" style="stroke:${RAIL};stroke-width:${w || 1.5};fill:none"/>`;
+    const tu = tuAll, tl = tlAll;
+    const railPath = (d2, w) => `<path d="${d2}" style="stroke:${RAIL};stroke-width:${w || 1.5};fill:none;stroke-linejoin:round"/>`;
 
     // Both top screw rows are drawn. An assigned terminal gets a dark **signal** wire up to
     // its boxed label PLUS a brown **supply/return** lead from the card to the nearest paired
     // pad (4-20 mA IN→24V, relay coil R→24VAC, ADC→GND). Active rail pads get the rail colour.
+    let retK = 0;
     const drawTop = (c, i, row) => {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment, cy = row === "U" ? yU : yL;
@@ -1667,23 +1695,32 @@ class GardenEspPanel extends HTMLElement {
       svg += `<line x1="${cx}" y1="${cy - 6}" x2="${px}" y2="${topName}" class="gcwire"/>` + card(px, topName, -90, a);
       if (a.ret) {  // supply/return lead from the card to the nearest pad carrying that label
         const cands = [];
-        tu.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yU, idx }); });
-        tl.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yL, idx }); });
+        tu.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yU, idx, row: "U" }); });
+        tl.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yL, idx, row: "L" }); });
         if (cands.length) {
           const t = cands.sort((p, q) => Math.abs(p.idx - i) - Math.abs(q.idx - i))[0];
-          svg += lead(px, topName - cardW(a) + 2, t.x, t.y - 6, 1.6);  // start at the label's far (top) end
+          // Leave the card at its far (narrow) end, run over all cards on its own bus lane,
+          // then drop onto the pad — never back down through the card body. A lower-row pad
+          // is approached from the side so the drop misses the upper screw + its label.
+          const by = busTop - 4 * retK++;
+          let path = `M${px},${cardTopY(a) - 2} V${by} `;
+          if (t.row === "U") path += `H${t.x} V${t.y - 6}`;
+          else {
+            const lane = t.x + 22 <= W - MX ? t.x + 22 : t.x - 26;
+            path += `H${lane} V${t.y} H${t.x}`;
+          }
+          svg += railPath(path, 1.6);
         }
       }
     };
-    (g.top_upper || []).forEach((c, i) => drawTop(c, i, "U"));
-    (g.top_lower || []).forEach((c, i) => drawTop(c, i, "L"));
+    tu.forEach((c, i) => drawTop(c, i, "U"));
+    tl.forEach((c, i) => drawTop(c, i, "L"));
 
     // Bottom valve row: a dark signal wire to each card; the **COM return leaves the card**
     // (not the screw) into a COM distribution block bottom-right, then one diagonal line from
     // the block to a COM pad. Only assigned valves join the block.
-    const block = { x: W - 210, y: 470, w: 190, h: 82 };
     const vlist = [];
-    (g.bottom || []).forEach((c, i) => {
+    boAll.forEach((c, i) => {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment;
       svg += screw(cx, yB, colOf(a, c));
@@ -1697,18 +1734,29 @@ class GardenEspPanel extends HTMLElement {
       svg += `<rect x="${block.x}" y="${block.y}" width="${block.w}" height="${block.h}" rx="6" style="fill:#efebe9;stroke:${RAIL};stroke-width:1.6"/>`;
       svg += `<text x="${block.x + block.w / 2}" y="${block.y + 20}" style="fill:${RAIL};font-weight:700;font-size:11px" text-anchor="middle">COM-Verteilerblock</text>`;
       svg += `<text x="${block.x + block.w / 2}" y="${block.y + 36}" style="fill:${RAIL};font-size:9px" text-anchor="middle">Rückleiter aller Ventile</text>`;
-      vlist.forEach((v, k) => {
-        const ty = block.y + 14 + ((k + 1) * (block.h - 20)) / (vlist.length + 1);
-        svg += lead(v.cx, v.tipY, block.x, ty, 1.5);
+      // Valves standing over the block drop straight onto its top edge; the rest fan in
+      // from the left — each first dropping below the longest card, so no lead crosses a
+      // neighbouring device box on its way.
+      const fan = vlist.filter((v) => v.cx <= block.x + 8);
+      vlist.forEach((v) => {
+        if (v.cx > block.x + 8) { svg += railPath(`M${v.cx},${v.tipY} V${block.y}`); return; }
+        const k = fan.indexOf(v);
+        const ty = block.y + 14 + ((k + 1) * (block.h - 20)) / (fan.length + 1);
+        const mx = (v.cx + block.x) / 2;
+        svg += railPath(`M${v.cx},${v.tipY} V${fanY} C${mx},${fanY} ${mx},${ty} ${block.x},${ty}`);
       });
-      // one diagonal line from the block up to the nearest (rightmost) COM pad
-      const comIdx = [4, 5, 6, 7].filter((i) => tu[i] && tu[i].label === "COM").sort((p, q) => colCX(q) - colCX(p))[0];
+      // COM bus block → a COM pad, routed up the free corridor between the two 6-way
+      // terminal blocks (never across a device box) and landing on the pad from the side.
+      const corridor = colCX(5) + COLW / 2 + GAP / 2;
+      const comIdx = [4, 5, 6, 7].filter((i) => tu[i] && tu[i].label === "COM")
+        .sort((p, q) => Math.abs(colCX(p) - corridor) - Math.abs(colCX(q) - corridor))[0];
       if (comIdx != null) {
-        const sx = colCX(comIdx);
-        svg += `<path d="M${block.x + block.w / 2},${block.y} C${block.x},${block.y - 90} ${sx + 30},${yU + 120} ${sx},${yU + 6}" style="stroke:${RAIL};stroke-width:2.4;fill:none"/>`;
-        svg += `<text x="${sx + 14}" y="${yU + 96}" style="fill:${RAIL};font-weight:700;font-size:11px">→ COM</text>`;
+        const sx = colCX(comIdx), side = sx > corridor ? -7 : 7;
+        svg += railPath(`M${block.x},${block.y + block.h / 2} H${corridor} V${yU} H${sx + side}`, 2.4);
+        svg += `<text x="${corridor + 6}" y="${topName}" style="fill:${RAIL};font-weight:700;font-size:11px">→ COM</text>`;
       }
     }
+    svg += silk;   // board lettering on top of the COM bus crossing the body
 
     // legend
     const gleg = [["#2e7d32", "Ausgang"], ["#1565c0", "Eingang/Sensor"], ["#37474f", "Signal"], [RAIL, "Versorgung/Rückleiter"]];
@@ -1819,7 +1867,8 @@ class GardenEspPanel extends HTMLElement {
       .termfree{font-size:9px;fill:#b0bec5}
       .gcwire{stroke:#90a4ae;stroke-width:1.2}
       .gccard{fill:#fff;stroke-width:1.2}.gccard.out{stroke:#2e7d32}.gccard.in{stroke:#1565c0}
-      .gcdev{font-size:11px;font-weight:600}.gcdev.out{fill:#2e7d32}.gcdev.in{fill:#1565c0}`;
+      .gcdev{font-size:11px;font-weight:600;font-family:Roboto,"Helvetica Neue",Arial,sans-serif}
+      .gcdev.out{fill:#2e7d32}.gcdev.in{fill:#1565c0}`;
   }
 
   // --- event binding ---------------------------------------------------------
@@ -2096,6 +2145,19 @@ function boolSelect(path, val, trueLabel, falseLabel) {
 }
 
 // --- generic helpers ---------------------------------------------------------
+// Real text width (canvas) — used to size the wiring-diagram device boxes so they hug
+// their label instead of the old 7.2px/char guess, which over-reserved ~1px per char
+// and therefore truncated names while the frame still had room. The +6% margin covers
+// renderers that fall back to a wider sans-serif (print window, headless rsvg).
+const GC_DEV_FONT = '600 11px Roboto, "Helvetica Neue", Arial, sans-serif';
+let _measureCtx = null;
+function textWidth(s, font) {
+  const t = String(s == null ? "" : s);
+  if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d");
+  if (!_measureCtx) return t.length * 6.6;   // no 2d context → conservative estimate
+  _measureCtx.font = font;
+  return _measureCtx.measureText(t).width;
+}
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -2353,7 +2415,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
 .wiresvg .gccard { fill: #fff; stroke-width: 1.2; }
 .wiresvg .gccard.out { stroke: #2e7d32; }
 .wiresvg .gccard.in { stroke: #1565c0; }
-.wiresvg .gcdev { font-size: 11px; font-weight: 600; }
+.wiresvg .gcdev { font-size: 11px; font-weight: 600; font-family: Roboto, "Helvetica Neue", Arial, sans-serif; }
 .wiresvg .gcdev.out { fill: #2e7d32; }
 .wiresvg .gcdev.in { fill: #1565c0; }
 .wirenotes { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--secondary-text-color); }
