@@ -145,7 +145,7 @@ def _gc_box():
             {"id": "o3", "type": "other", "name": "Springbrunnen", "channel": "R2"},
         ],
         "inputs": [
-            {"id": "i1", "kind": "pressure", "name": "Zisterne Pegel", "pin": "A0"},
+            {"id": "i1", "kind": "pressure", "name": "Zisterne Pegel", "pin": "IN1"},
             {"id": "i2", "kind": "rain", "name": "RainClik", "pin": "GPIO14"},
             {"id": "i3", "kind": "soil_moisture", "name": "Beet", "pin": "GPIO33"},
         ],
@@ -193,10 +193,19 @@ class GardenControlTest(unittest.TestCase):
 
     def test_inputs_on_terminals_by_pin(self):
         terms = self._terminals()
-        self.assertEqual(terms["IN1"]["assignment"]["name"], "Zisterne Pegel")  # A0 → IN1
+        self.assertEqual(terms["IN1"]["assignment"]["name"], "Zisterne Pegel")
         self.assertEqual(terms["BIN1"]["assignment"]["name"], "RainClik")       # GPIO14 → BIN1
         self.assertEqual(terms["ADC2"]["assignment"]["name"], "Beet")           # GPIO33 → ADC2
         self.assertEqual(terms["IN1"]["assignment"]["role"], "sensor")
+
+    def test_legacy_ads_channel_pin_folds_to_terminal(self):
+        # Un-migrated config: pin "A0" was always *displayed* as IN1 → keep it there.
+        box = _gc_box()
+        box["inputs"] = [{"id": "i1", "kind": "pressure", "name": "Alt-Pegel", "pin": "A0"}]
+        out = wiring.build(_config(box), "box_g")
+        terms = {c["label"]: c for col in out["grid"].values() for c in col if c["label"]}
+        self.assertEqual(terms["IN1"]["assignment"]["name"], "Alt-Pegel")
+        self.assertIsNone(terms["IN2"]["assignment"])
 
     def test_power_terminals_never_assigned(self):
         terms = self._terminals()
@@ -214,18 +223,23 @@ class GardenControlTest(unittest.TestCase):
         self.assertEqual(names, {"Tomaten", "Eheim Pumpe", "Springbrunnen",
                                  "Zisterne Pegel", "RainClik", "Beet"})
 
-    def test_in_supply_relabelled_24v(self):
-        # board photo (Anschluss4-20mA): the IN-adjacent supply pads read "24V", not "VCC"
-        labels = [c["label"] for c in self.out["grid"]["top_upper"]]
-        self.assertEqual(labels[1], "24V")
-        self.assertEqual(labels[3], "24V")
+    def test_in_supply_pads_carry_silkscreen_vcc(self):
+        # The board silkscreen prints "VCC" next to IN1/IN2 — only the vendor's
+        # *connection drawing* annotates them functionally as "24V". The lens shows
+        # silkscreen labels; the 24 V DC function lives in the cell's `fn` text.
+        top = self.out["grid"]["top_upper"]
+        self.assertEqual([c["label"] for c in top][:4], ["IN1", "VCC", "IN2", "VCC"])
+        self.assertIn("24 V DC", top[1]["fn"])
 
     def test_device_return_pairing(self):
         by_name = {d["name"]: d for d in self.out["devices"]}
         self.assertEqual(by_name["Tomaten"]["ret"], "COM")          # valve → COM
-        self.assertEqual(by_name["Eheim Pumpe"]["ret"], "24VAC")    # relay coil → 24VAC
-        self.assertEqual(by_name["Springbrunnen"]["ret"], "24VAC")
-        self.assertEqual(by_name["Zisterne Pegel"]["ret"], "24V")   # 4-20 mA IN → 24V supply
+        # Relay coils return to COM exactly like a valve (vendor AnschlussRelais
+        # diagram): COM is one transformer pole, the board switches the other onto Rn.
+        # 24VAC is the feed-in, never a load return.
+        self.assertEqual(by_name["Eheim Pumpe"]["ret"], "COM")
+        self.assertEqual(by_name["Springbrunnen"]["ret"], "COM")
+        self.assertEqual(by_name["Zisterne Pegel"]["ret"], "VCC")   # 4-20 mA IN → VCC supply
         self.assertEqual(by_name["Beet"]["ret"], "GND")             # 0-12 V ADC → GND
         self.assertEqual(by_name["RainClik"]["ret"], "")            # binary → no drawn return
 
@@ -234,11 +248,23 @@ class GardenControlTest(unittest.TestCase):
         # box has a valve, relays and an ADC sensor → those rails are active…
         self.assertEqual(terms["COM"]["rail"], "com")
         self.assertTrue(terms["COM"]["active"])
-        self.assertTrue(terms["24VAC"]["active"])
         self.assertTrue(terms["GND"]["active"])
         # …and IN1 is used, IN2 is not → only IN1's supply pad is active
         self.assertTrue(self.out["grid"]["top_upper"][1]["active"])
         self.assertFalse(self.out["grid"]["top_upper"][3]["active"])
+
+    def test_24vac_is_feed_in_not_a_rail(self):
+        # 24VAC must never be emphasised as a return rail — wiring a coil there is wrong.
+        terms = self._terminals()
+        self.assertNotIn("rail", terms["24VAC"])
+        self.assertTrue(terms["24VAC"]["power"])
+
+    def test_relay_only_box_activates_com_rail(self):
+        box = _gc_box()
+        box["outputs"] = [{"id": "o2", "type": "pump", "name": "Eheim Pumpe", "channel": "R1"}]
+        out = wiring.build(_config(box), "box_g")
+        terms = {c["label"]: c for col in out["grid"].values() for c in col if c["label"]}
+        self.assertTrue(terms["COM"]["active"])  # coil returns to COM → rail in use
 
     def test_rails_inactive_without_users(self):
         box = _gc_box()
@@ -247,7 +273,6 @@ class GardenControlTest(unittest.TestCase):
         out = wiring.build(_config(box), "box_g")
         terms = {c["label"]: c for col in out["grid"].values() for c in col if c["label"]}
         self.assertFalse(terms["COM"]["active"])
-        self.assertFalse(terms["24VAC"]["active"])
         self.assertFalse(terms["GND"]["active"])
 
 

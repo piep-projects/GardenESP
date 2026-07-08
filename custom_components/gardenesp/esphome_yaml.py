@@ -76,7 +76,18 @@ class YamlGenError(ValueError):
 # pressure/temperature); 3× binary inputs (switches / S0 meter / rain sensor).
 _GC_VALVE_PINS = 12
 _GC_PUMP_CHANNELS = ["R1", "R2"]  # map onto MCP pins 12/13
-_GC_ADS_CHANNELS = ["A0", "A1"]  # 2× 4-20 mA
+# 4-20 mA inputs are addressed by their **printed terminal label** (IN1/IN2); the
+# ADS1115 multiplexer is resolved only at generation time. The board crosses them:
+# terminal IN1 sits on ADS **A1**, IN2 on **A0** — verified against the vendor
+# firmware (`gardencontrol/GardenControl-main/ESPHome_Firmware/esp32-gardencontrol.yaml`,
+# "4-20mA CH1" reads `A1_GND`, "CH2" reads `A0_GND`). Storing the mux name here is
+# what made GardenESP read the *other* terminal than the one the user wired.
+_GC_ADS_CHANNELS = ["IN1", "IN2"]  # 2× 4-20 mA (terminal labels)
+_GC_ADS_MUX = {"IN1": "A1", "IN2": "A0"}
+_GC_ADS_ID = {"IN1": "gc_in1", "IN2": "gc_in2"}
+# Legacy configs stored the mux name, but the UI always *labelled* A0 as "IN1" —
+# so the user wired by the label. Map the old key onto the label it displayed.
+_GC_ADS_LEGACY = {"A0": "IN1", "A1": "IN2"}
 _GC_ADC_PINS = ["GPIO32", "GPIO33", "GPIO34", "GPIO35"]  # 4× ADC 0-12 V
 _GC_BINARY_PINS = ["GPIO14", "GPIO16", "GPIO17"]  # 3× binary (rain / S0 / switch)
 
@@ -88,6 +99,17 @@ _WROOM_OUTPUT_PINS = [
 _WROOM_BINARY_PINS = ["GPIO26", "GPIO27"]
 _WROOM_ADC_PINS = ["GPIO34", "GPIO35", "GPIO32", "GPIO33"]
 _WROOM_PULSE_PIN = "GPIO13"
+
+
+def gc_input_pin(pin: Any) -> str:
+    """Canonical GardenControl input slot for a stored ``pin``.
+
+    Normalises case and folds the legacy ADS-channel keys (``A0``/``A1``) onto the
+    terminal labels the UI has always shown for them (``IN1``/``IN2``). Every other
+    pin (``GPIO*``) passes through unchanged. GardenControl boxes only — a generic
+    box may legitimately carry an ``A0`` pin for an external ADS1115.
+    """
+    return _GC_ADS_LEGACY.get(p := str(pin or "").strip().upper(), p)
 
 
 # --- helpers ------------------------------------------------------------------
@@ -412,6 +434,14 @@ DIAG_ERR_12V_NAME = "Versorgungsfehler 12V"
 DIAG_ERR_24V_NAME = "Versorgungsfehler 24V"
 DIAG_ERR_LOOP1_NAME = "4-20mA CH1 Loop-Fehler"
 DIAG_ERR_LOOP2_NAME = "4-20mA CH2 Loop-Fehler"
+# Under-range detection on the *signal* channels. The board's own error inputs
+# (ADS A2/A3, > 2 V) only see an open/shorted loop on the supply side — they stay
+# `off` while a mis-wired, unpowered or dead transmitter leaves the signal channel
+# at ~0 mA instead of the 4 mA live-zero. Only emitted for configured terminals,
+# otherwise an empty input would report a permanent fault.
+DIAG_ERR_LOOP1_LOW_NAME = "4-20mA CH1 Unterbereich"
+DIAG_ERR_LOOP2_LOW_NAME = "4-20mA CH2 Unterbereich"
+_GC_LOOP_MIN_MA = 3.5  # below the 4 mA live-zero (with margin) = no valid loop
 
 
 def _diag_button() -> list[str]:
@@ -512,6 +542,28 @@ def _gc_error_binsensors() -> list[str]:
     return L
 
 
+def _gc_loop_underrange_binsensors(inputs: dict[str, Any]) -> list[str]:
+    """``binary_sensor:`` items flagging a 4-20 mA loop **below the 4 mA live-zero**.
+
+    A healthy two-wire transmitter always sources ≥ 4 mA, even dry. Less than that
+    means open loop, no supply, reversed polarity or a dead sensor. Emitted only for
+    terminals that carry a configured input — see ``DIAG_ERR_LOOP*_LOW_NAME``.
+    """
+    L: list[str] = []
+    for term, name in (("IN1", DIAG_ERR_LOOP1_LOW_NAME), ("IN2", DIAG_ERR_LOOP2_LOW_NAME)):
+        if not inputs.get(term):
+            continue
+        sid = _GC_ADS_ID[term]
+        L += [
+            "  - platform: template",
+            f'    name: "{name}"',
+            "    device_class: problem",
+            "    entity_category: diagnostic",
+            f"    lambda: 'return !isnan(id({sid}).state) && id({sid}).state < {_GC_LOOP_MIN_MA};'",
+        ]
+    return L
+
+
 def _gc_loop_error_adc_sensors() -> list[str]:
     """``sensor:`` list-items for the raw 4-20 mA loop-error voltages (ADS A2/A3).
     Kept ``internal`` (id only, not exposed) — the user-facing signal is the
@@ -593,24 +645,13 @@ def _sensors(box: dict[str, Any], hw: str) -> list[str]:
 def _pressure_sensor(
     inp: dict[str, Any], sid: str, name: str, hw: str, idx: dict[str, int]
 ) -> tuple[list[str], str]:
-    if hw == HW_GARDENCONTROL:
-        channel = _resolve_pin(inp, _GC_ADS_CHANNELS, idx, "ads", strict=True)  # A0 | A1
-        return (
-            [
-                "  - platform: ads1115",
-                f"    id: {sid}",
-                f'    name: "{name}"',
-                f"    multiplexer: {channel}_GND",
-                "    gain: 6.144",
-                # Raw ADC voltage (device_class voltage) — NOT mbar; the cistern
-                # calibration table maps this raw value straight to liters (FR-S5a).
-                "    unit_of_measurement: V",
-                "    update_interval: 10s",
-            ],
-            f"ads:{channel}",
-        )
-    # WROOM/custom: smooth the noisy 4-20 mA / analog level reading on-device
-    # (the GardenControl board filters in hardware, so this is WROOM-only).
+    # GardenControl never reaches here: `_sensors()` is only called from the generic
+    # branch of `_base_yaml`, with `hw` hard-wired to HW_ESP32_WROOM. Its 4-20 mA
+    # inputs live in `_generate_gardencontrol` (ADS1115, gain 2.048, mA). A stale
+    # GardenControl branch used to sit here emitting `gain: 6.144` / `V` — dead code
+    # that contradicted the real template and cost a long field debugging session.
+    #
+    # WROOM/custom: smooth the noisy 4-20 mA / analog level reading on-device.
     # Raw ADC voltage (NOT mbar) — the calibration table maps raw → liters (FR-S5a).
     return _adc_sensor(
         inp, sid, name, hw, idx, "mdi:gauge", unit="V",
@@ -730,7 +771,7 @@ def _gc_maps(box: dict[str, Any]) -> dict[str, Any]:
             valves[int(ch)] = o
     by_pin: dict[str, dict] = {}
     for i in box.get("inputs") or []:
-        pin = str(i.get("pin") or "").strip().upper()
+        pin = gc_input_pin(i.get("pin"))  # legacy A0/A1 → terminal IN1/IN2
         if pin:
             by_pin[pin] = i
     return {"valves": valves, "relais": relais, "inputs": by_pin}
@@ -933,6 +974,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
                 "    filters: [ { delayed_on: 10ms } ]",
             ]
     L += _gc_error_binsensors()  # supply-voltage + 4-20mA loop errors (roadmap #1)
+    L += _gc_loop_underrange_binsensors(inputs)  # signal channel below 4 mA live-zero
     L += ["", "# ─── Analog inputs (4× ADC 0-12V + 2× 4-20mA) ───────────────────────────", "sensor:"]
     adc_label = {"GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4"}
     for pin in _GC_ADC_PINS:
@@ -946,13 +988,16 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             "    update_interval: 2s",
             "    filters: [ { multiply: 4 } ]",  # board divider → 0-12 V range
         ]
-    in_label = {"A0": "IN1", "A1": "IN2"}
-    for ch in ("A0", "A1"):
-        nm = ascii_fold((inputs.get(ch) or {}).get("name") or in_label[ch])
+    # Terminal IN1 → ADS A1, IN2 → A0 (board crossing, see _GC_ADS_MUX). The
+    # `multiply: 10` turns the volts across the 100 Ω shunt into mA (20 mA = 2.000 V,
+    # exactly the gain: 2.048 full scale).
+    for term in _GC_ADS_CHANNELS:
+        nm = ascii_fold((inputs.get(term) or {}).get("name") or term)
         L += [
             "  - platform: ads1115",
-            f"    multiplexer: {ch}_GND",
+            f"    multiplexer: {_GC_ADS_MUX[term]}_GND",
             "    gain: 2.048",
+            f"    id: {_GC_ADS_ID[term]}",
             f'    name: "{nm}"',
             '    unit_of_measurement: "mA"',
             "    device_class: current",

@@ -25,6 +25,7 @@ try:  # package import in HA; flat import in the standalone unit tests (_path sh
         _WROOM_BINARY_PINS,
         _WROOM_OUTPUT_PINS,
         _WROOM_PULSE_PIN,
+        gc_input_pin,
     )
 except ImportError:  # pragma: no cover
     from esphome_yaml import (  # type: ignore[no-redef]
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover
         _WROOM_BINARY_PINS,
         _WROOM_OUTPUT_PINS,
         _WROOM_PULSE_PIN,
+        gc_input_pin,
     )
 
 HW_WROOM = "esp32_wroom"
@@ -117,11 +119,11 @@ _INPUT_POOLS = {
 }
 
 # GardenControl is a fixed screw-terminal board (no free GPIO): inputs map onto
-# printed terminal labels by their ``pin``. Labels match the Smart-MF
-# README connection diagrams (IN1/IN2 = 4-20 mA, BIN1-3 = binary 24 V, ADC1-4 =
-# 0-12 V); mirrors ``GC_PIN_LABEL`` in the panel editor.
+# printed terminal labels by their ``pin``. Labels match the board silkscreen;
+# mirrors ``GC_PIN_LABEL`` in the panel editor. 4-20 mA inputs already *are* the
+# terminal label (``gc_input_pin`` folds the legacy ``A0``/``A1`` keys).
 _GC_INPUT_TERMINAL = {
-    "A0": "IN1", "A1": "IN2",
+    "IN1": "IN1", "IN2": "IN2",
     "GPIO14": "BIN1", "GPIO16": "BIN2", "GPIO17": "BIN3",
     "GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4",
 }
@@ -269,17 +271,20 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
             "role": o.get("type") or "output",
             "kind": "output",
             "short_id": f"{label}{ch}" if label and ch else "",  # Ausgang-ID A5 (FDS §3)
-            # shared return: valves → COM, relay coil → 24VAC (contact/load side not drawn)
-            "ret": "24VAC" if term in ("R1", "R2") else "COM",
+            # Shared return is COM for *both* valves and relay coils: COM is one pole
+            # of the 24 VAC transformer, the board switches the other onto Vn/Rn (see
+            # the vendor's AnschlussRelais diagram — the coil's second wire lands on a
+            # COM screw, not on the 24VAC feed-in). Relay contact/load side not drawn.
+            "ret": "COM",
         })
     in_by_term: dict[str, dict[str, Any]] = {}
     for i in box.get("inputs") or []:
-        term = _GC_INPUT_TERMINAL.get(str(i.get("pin") or "").strip().upper())
+        term = _GC_INPUT_TERMINAL.get(gc_input_pin(i.get("pin")))
         if not term:
             continue
-        # return/supply pairing: 4-20 mA loop (IN) needs its 24V supply pad, 0-12 V
-        # analog (ADC) needs GND; binary inputs (BIN) carry no drawn return.
-        ret = "24V" if term in ("IN1", "IN2") else ("GND" if term.startswith("ADC") else "")
+        # return/supply pairing: 4-20 mA loop (IN) needs its adjacent VCC supply pad
+        # (24 V DC), 0-12 V analog (ADC) needs GND; binary inputs (BIN) draw no return.
+        ret = "VCC" if term in ("IN1", "IN2") else ("GND" if term.startswith("ADC") else "")
         in_by_term.setdefault(term, {
             "name": (i.get("name") or "").strip() or i.get("id"),
             "role": "sensor",
@@ -297,8 +302,8 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     # (each split into a left + right 6-way block) and one valve row on the BOTTOM.
     grid = {
         "top_upper": [
-            _c("IN1", "4-20 mA Signal 1"), _c("24V", "Sensor-Versorgung (24 V DC)", True),
-            _c("IN2", "4-20 mA Signal 2"), _c("24V", "Sensor-Versorgung (24 V DC)", True),
+            _c("IN1", "4-20 mA Signal 1"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
+            _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("R1", "Relais 1 (230 V)"), _c("R2", "Relais 2 (230 V)"),
@@ -316,18 +321,21 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     }
 
     # Mark the shared return/supply rails that are actually in use so the renderer can
-    # draw a bus + emphasise the pads: valves→COM, relay coil→24VAC, 4-20 mA IN→24V,
+    # draw a bus + emphasise the pads: valves **and relay coils**→COM, 4-20 mA IN→VCC,
     # 0-12 V ADC→GND. ``active`` gates the emphasis; unused rails stay neutral.
+    # 24VAC is the transformer feed-in, never a load return → no rail.
     any_valve = any(c["assignment"] for c in grid["bottom"])
     any_relay = "R1" in out_by_term or "R2" in out_by_term
     any_adc = any(t in in_by_term for t in ("ADC1", "ADC2", "ADC3", "ADC4"))
-    rail_kind = {"COM": "com", "24VAC": "coil", "GND": "gnd"}
-    rail_active = {"COM": any_valve, "24VAC": any_relay, "GND": any_adc}
+    rail_kind = {"COM": "com", "GND": "gnd"}
+    rail_active = {"COM": any_valve or any_relay, "GND": any_adc}
     for c in grid["top_upper"] + grid["top_lower"]:
         if c["label"] in rail_kind:
             c["rail"] = rail_kind[c["label"]]
             c["active"] = rail_active[c["label"]]
-    # the two IN supply pads (24V) pair with their adjacent IN1/IN2 by position
+    # The two IN supply pads pair with their adjacent IN1/IN2 by position. They carry
+    # the silkscreen label VCC — as does the BIN supply pad at top_lower[0], so the
+    # renderer must pick the pad by row+proximity, not by label alone.
     grid["top_upper"][1]["rail"] = grid["top_upper"][3]["rail"] = "insupply"
     grid["top_upper"][1]["active"] = "IN1" in in_by_term
     grid["top_upper"][3]["active"] = "IN2" in in_by_term
@@ -336,10 +344,12 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     notes = [
         "Klemmenplan nach dem echten GardenControl-Board (Silkscreen-Labels).",
         "Ventile V1–V12: geschaltete Ader an Vn, gemeinsamer Rückleiter an COM (Sammelschiene).",
-        "Relais R1/R2 (Koppelrelais): Spule an Relais-Ausgang + 24VAC; die potentialfreie "
-        "Kontaktseite (z. B. 230-V-Pumpe) ist NICHT dargestellt — extern, Elektrofachkraft.",
+        "Relais R1/R2 (Koppelrelais): Spule an Relais-Ausgang + COM (wie ein Ventil); die "
+        "beiden 24VAC-Klemmen sind die Trafo-Einspeisung, kein Anschlusspunkt für die Spule. "
+        "Die potentialfreie Kontaktseite (z. B. 230-V-Pumpe) ist NICHT dargestellt — "
+        "extern, Elektrofachkraft.",
         "4-20-mA-Sensoren an IN1/IN2: 2-Draht — Signal an INx, Versorgung (+) an das "
-        "nebenstehende 24V. Kein GND (Stromschleife schließt intern).",
+        "nebenstehende VCC (24 V DC). Kein GND (Stromschleife schließt intern).",
         "Analog-/DC-Sensoren an ADC1–4 (0–12 V): Sensor-Minus/GND an die GND-Klemme, "
         "Versorgung von +5V/+12V/+24V.",
         "BIN1–3 = Binär 24 V (Regen/S0/Schalter). Versorgung: 24-VAC-Trafo (≥ 3 A), externe "

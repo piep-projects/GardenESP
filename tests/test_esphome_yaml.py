@@ -106,11 +106,57 @@ class TestGardenControl(unittest.TestCase):
         self.assertIn("number: 13", gen.generate_box_yaml(box))
 
     def test_pressure_on_ads_with_name_and_gain(self):
-        box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "A1"}])
+        box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"}])
         yaml = gen.generate_box_yaml(box)
         self.assertIn("multiplexer: A1_GND", yaml)
         self.assertIn('name: "Zisterne"', yaml)
         self.assertIn("gain: 2.048", yaml)
+
+    def _mux_of(self, yaml, name):
+        """The `multiplexer:` of the ads1115 sensor carrying `name`."""
+        lines = yaml.splitlines()
+        i = lines.index(f'    name: "{name}"')
+        for ln in reversed(lines[:i]):
+            if ln.startswith("    multiplexer:"):
+                return ln.split(":", 1)[1].strip()
+        raise AssertionError(f"no multiplexer above {name!r}")
+
+    def test_terminals_map_to_crossed_ads_channels(self):
+        # The board crosses them: terminal IN1 sits on ADS A1, IN2 on A0. Verified
+        # against the vendor firmware (esp32-gardencontrol.yaml: "4-20mA CH1" = A1_GND).
+        # Reading the mux name as if it were the terminal made GardenESP sample the
+        # *other* screw than the one the user wired.
+        box = _box(inputs=[
+            {"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"},
+            {"id": "i2", "kind": "pressure", "name": "Regentonne", "pin": "IN2"},
+        ])
+        yaml = gen.generate_box_yaml(box)
+        self.assertEqual(self._mux_of(yaml, "Zisterne"), "A1_GND")
+        self.assertEqual(self._mux_of(yaml, "Regentonne"), "A0_GND")
+
+    def test_legacy_ads_pin_keeps_the_terminal_it_displayed(self):
+        # Un-migrated config: "A0" was labelled IN1 in the editor, so the sensor hangs
+        # on terminal IN1 → it must now be read from ADS A1.
+        box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "A0"}])
+        self.assertEqual(self._mux_of(gen.generate_box_yaml(box), "Zisterne"), "A1_GND")
+
+    def test_unconfigured_terminal_keeps_its_default_name(self):
+        box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN2"}])
+        yaml = gen.generate_box_yaml(box)
+        self.assertEqual(self._mux_of(yaml, "IN1"), "A1_GND")  # default-named, still A1
+
+    def test_loop_underrange_binsensor_only_for_configured_terminals(self):
+        box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"}])
+        yaml = gen.generate_box_yaml(box)
+        self.assertIn(f'name: "{gen.DIAG_ERR_LOOP1_LOW_NAME}"', yaml)
+        self.assertNotIn(f'name: "{gen.DIAG_ERR_LOOP2_LOW_NAME}"', yaml)  # IN2 empty → no fault
+        self.assertIn("id(gc_in1).state < 3.5", yaml)
+        self.assertIn("!isnan(id(gc_in1).state)", yaml)
+
+    def test_no_loop_underrange_binsensor_without_inputs(self):
+        yaml = gen.generate_box_yaml(_box())
+        self.assertNotIn(gen.DIAG_ERR_LOOP1_LOW_NAME, yaml)
+        self.assertNotIn(gen.DIAG_ERR_LOOP2_LOW_NAME, yaml)
 
     def test_adc_scaling(self):
         yaml = gen.generate_box_yaml(_box())
@@ -526,6 +572,30 @@ class TestBoardDiagnostics(unittest.TestCase):
         # Both counters share one top-level `globals:` key.
         for y in self._both():
             self.assertEqual(sum(1 for ln in y.splitlines() if ln == "globals:"), 1)
+
+
+class TestGcInputPin(unittest.TestCase):
+    """`gc_input_pin` is the whole of the coordinator's storage migration."""
+
+    def test_legacy_ads_keys_fold_to_the_label_they_displayed(self):
+        self.assertEqual(gen.gc_input_pin("A0"), "IN1")
+        self.assertEqual(gen.gc_input_pin("A1"), "IN2")
+
+    def test_case_and_whitespace_normalised(self):
+        self.assertEqual(gen.gc_input_pin(" a0 "), "IN1")
+        self.assertEqual(gen.gc_input_pin("in2"), "IN2")
+
+    def test_terminal_labels_and_gpios_pass_through(self):
+        for pin in ("IN1", "IN2", "GPIO14", "GPIO35"):
+            self.assertEqual(gen.gc_input_pin(pin), pin)
+
+    def test_empty_pin_stays_empty(self):
+        for pin in (None, "", "   "):
+            self.assertEqual(gen.gc_input_pin(pin), "")
+
+    def test_mux_map_matches_vendor_firmware(self):
+        # esp32-gardencontrol.yaml: "4-20mA CH1" → A1_GND, "CH2" → A0_GND
+        self.assertEqual(gen._GC_ADS_MUX, {"IN1": "A1", "IN2": "A0"})
 
 
 if __name__ == "__main__":

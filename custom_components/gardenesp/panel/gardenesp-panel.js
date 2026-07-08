@@ -45,9 +45,12 @@ const CHANNELS = {
   // generic/custom: channel is just the short A5 number; the real pin is `gpio`.
   generic: { valve: Array.from({ length: 24 }, (_, i) => String(i + 1)), pump: Array.from({ length: 24 }, (_, i) => String(i + 1)) },
 };
-// GardenControl board terminal labels (display only; pin values unchanged).
+// GardenControl board terminal labels (display only; pin values unchanged). The
+// 4-20 mA inputs are stored *as* their terminal label — the ADS multiplexer behind
+// them is crossed on the board (IN1→A1, IN2→A0) and resolved server-side. A0/A1
+// remain as legacy keys so a not-yet-migrated config still renders a label.
 const GC_PIN_LABEL = {
-  A0: "IN1", A1: "IN2",
+  IN1: "IN1", IN2: "IN2", A0: "IN1", A1: "IN2",
   GPIO14: "BIN1", GPIO16: "BIN2", GPIO17: "BIN3",
   GPIO32: "ADC1", GPIO33: "ADC2", GPIO34: "ADC3", GPIO35: "ADC4",
 };
@@ -59,7 +62,7 @@ const ADS_CHANNELS = ["A0", "A1", "A2", "A3"]; // optional external ADS1115
 // Input pin inventory per hw_type + kind. GardenControl = fixed; generic = free GPIO (+ADS).
 const INPUT_PINS = {
   gardencontrol: {
-    pressure: ["A0", "A1"], // 2× 4-20 mA (ADS1115)
+    pressure: ["IN1", "IN2"], // 2× 4-20 mA (terminal labels; ADS mux resolved server-side)
     soil_moisture: ["GPIO32", "GPIO33", "GPIO34", "GPIO35"], // 4× ADC 0-12 V
     rain: ["GPIO14", "GPIO16", "GPIO17"], // 3 binary inputs (BIN1-3), shared with S0
     pulse_meter: ["GPIO14", "GPIO16", "GPIO17"],
@@ -1165,7 +1168,7 @@ class GardenEspPanel extends HTMLElement {
       : `<span class="sub muted">Noch keine Steuergeräte angelegt.</span>`;
     const builtin = `
       <div class="row"><div class="grow"><div class="title">GardenControl<span class="tag muted">eingebaut</span></div>
-        <div class="sub">festes Profil: 12 Ventile (24 VAC) · 2 Relais (R1/R2, 230 V) · 2× 4-20 mA (ADS A0/A1) · 4× ADC 0-12 V · 3× Binär (Regen/S0/Schalter)</div></div></div>
+        <div class="sub">festes Profil: 12 Ventile (24 VAC) · 2 Relais (R1/R2, 230 V) · 2× 4-20 mA (IN1/IN2) · 4× ADC 0-12 V · 3× Binär (Regen/S0/Schalter)</div></div></div>
       <div class="row"><div class="grow"><div class="title">ESP32-WROOM<span class="tag muted">eingebaut</span></div>
         <div class="sub">generisch: GPIO je Aus-/Eingang frei zuweisbar</div></div></div>`;
     const customRows = custom
@@ -1681,8 +1684,8 @@ class GardenEspPanel extends HTMLElement {
     const railPath = (d2, w) => `<path d="${d2}" style="stroke:${RAIL};stroke-width:${w || 1.5};fill:none;stroke-linejoin:round"/>`;
 
     // Both top screw rows are drawn. An assigned terminal gets a dark **signal** wire up to
-    // its boxed label PLUS a brown **supply/return** lead from the card to the nearest paired
-    // pad (4-20 mA IN→24V, relay coil R→24VAC, ADC→GND). Active rail pads get the rail colour.
+    // its boxed label PLUS a brown **supply/return** lead from the card to the paired pad
+    // (4-20 mA IN→VCC, relay coil R→COM, ADC→GND). Active rail pads get the rail colour.
     let retK = 0;
     const drawTop = (c, i, row) => {
       if (!c || !c.label) return;
@@ -1693,12 +1696,20 @@ class GardenEspPanel extends HTMLElement {
       if (!a) return;
       const px = cx + (row === "U" ? -13 : 13);
       svg += `<line x1="${cx}" y1="${cy - 6}" x2="${px}" y2="${topName}" class="gcwire"/>` + card(px, topName, -90, a);
-      if (a.ret) {  // supply/return lead from the card to the nearest pad carrying that label
+      if (a.ret) {  // supply/return lead from the card to the paired pad carrying that label
         const cands = [];
         tu.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yU, idx, row: "U" }); });
         tl.forEach((cc, idx) => { if (cc && cc.label === a.ret) cands.push({ x: colCX(idx), y: yL, idx, row: "L" }); });
         if (cands.length) {
-          const t = cands.sort((p, q) => Math.abs(p.idx - i) - Math.abs(q.idx - i))[0];
+          // The silkscreen prints VCC three times (2× IN supply, 1× BIN supply) and COM
+          // four times, so column proximity alone is ambiguous. Rank: same row first, then
+          // nearest column, then the pad to the right — IN1/IN2 each pair with the VCC
+          // screw directly right of them, R1/R2 fall back to the COM block on their left.
+          const rank = (p) => [p.row === row ? 0 : 1, Math.abs(p.idx - i), p.idx < i ? 1 : 0];
+          const t = cands.sort((p, q) => {
+            const A = rank(p), B = rank(q);
+            return A[0] - B[0] || A[1] - B[1] || A[2] - B[2];
+          })[0];
           // Leave the card at its far (narrow) end, run over all cards on its own bus lane,
           // then drop onto the pad — never back down through the card body. A lower-row pad
           // is approached from the side so the drop misses the upper screw + its label.

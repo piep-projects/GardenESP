@@ -133,6 +133,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         self._resolve_all_boxes()  # self-heal entity refs against the live registry
         self._recompute_all_box_hashes()  # firmware config fingerprints (#9)
         self._ensure_line_seqs()  # backfill stable box-scoped L-numbers (FDS §3)
+        self._migrate_gc_input_pins()  # legacy ADS channel keys → terminal labels
         await self.async_save_config()
         await self._async_recover_runtime()
         self._async_reschedule_all()
@@ -250,6 +251,27 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             for ln in self.config.lines.values()
             if ln.box_id == data.get("box_id") and ln.kind != LINE_KIND_SWITCH
         )
+
+    def _migrate_gc_input_pins(self) -> bool:
+        """Rewrite legacy GardenControl 4-20 mA input pins ``A0``/``A1`` to the printed
+        terminal labels ``IN1``/``IN2``.
+
+        The old configs stored the ADS multiplexer name, while the editor has always
+        *displayed* A0 as terminal "IN1" — so users wired by the label. But the board
+        crosses them (IN1 → ADS A1), which meant GardenESP read the other terminal.
+        Storing the label and resolving the mux in ``esphome_yaml`` fixes existing
+        installs without the user touching anything. Returns ``True`` if anything
+        changed so the caller persists.
+        """
+        changed = False
+        for box in self.config.boxes.values():
+            if box.hw_type != HW_GARDENCONTROL:
+                continue  # a generic box may legitimately carry an external ADS "A0"
+            for inp in box.inputs:
+                if (pin := esphome_yaml.gc_input_pin(inp.pin)) != inp.pin:
+                    inp.pin = pin
+                    changed = True
+        return changed
 
     def _ensure_line_seqs(self) -> bool:
         """Backfill stable L-numbers for irrigation lines that lack one (legacy
@@ -372,6 +394,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             ("24V", esphome_yaml.DIAG_ERR_24V_NAME),
             ("4-20mA CH1", esphome_yaml.DIAG_ERR_LOOP1_NAME),
             ("4-20mA CH2", esphome_yaml.DIAG_ERR_LOOP2_NAME),
+            # Under-range detectors exist only for terminals that carry an input —
+            # `index.get` drops the ones the box does not emit.
+            ("IN1 < 4 mA", esphome_yaml.DIAG_ERR_LOOP1_LOW_NAME),
+            ("IN2 < 4 mA", esphome_yaml.DIAG_ERR_LOOP2_LOW_NAME),
         )
         faults = [
             {"label": label, "entity": eid}
