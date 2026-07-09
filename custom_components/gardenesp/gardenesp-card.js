@@ -24,6 +24,10 @@ const STATUS = {
   unreachable: { label: "⚠ Nicht erreichbar", cls: "warn" },
   settling: { label: "◐ Nachlauf · Messung", cls: "warn" },
 };
+// Pure resting states carry no information the row doesn't already show (Letzte/
+// Nächste + ▶-Start button ⇒ „ruht gerade") → render no badge. „Automatik AUS" is
+// already surfaced by the separate „Auto aus"-Tag, so it needn't repeat as a badge.
+const RESTING_STATES = new Set(["idle", "automatic_off"]);
 // Firmware-drift status per box (#9) — keys match coordinator drift.fw_status().
 const FW_ATTENTION = ["drift", "drift_offline", "drift_export"];
 const SOURCE_TYPE = { cistern: "Zisterne", mains: "Festwasser" };
@@ -329,7 +333,9 @@ class GardenEspCard extends HTMLElement {
     // Source/box belong in the Details overlay (FR-D1a), not the line row (FR-D1).
     const sub = `${lastTxt}${this._faultLine(id, status)} · ${nextTxt}`;
     let badge;
-    if (status === "active") {
+    if (RESTING_STATES.has(status)) {
+      badge = "";
+    } else if (status === "active") {
       const until = this._val(id, "until");
       badge = `<span class="badge ok">${st.label} <span data-until="${esc(until || "")}">${fmtRemaining(until)}</span></span>`;
     } else {
@@ -373,7 +379,9 @@ class GardenEspCard extends HTMLElement {
     const lastIsFault = last && last === this._faultFor(id);
     const sub = `${last ? `Letzte: ${fmtLast(last, lastIsFault)}` : "Letzte: —"}${this._faultLine(id, status)} · Nächste: ${fmtNext(this._val(id, "next_run"))}`;
     let badge;
-    if (status === "active") {
+    if (RESTING_STATES.has(status)) {
+      badge = "";
+    } else if (status === "active") {
       const until = this._val(id, "until");
       if (until) {
         badge = `<span class="badge ok">${st.label} <span data-until="${esc(until)}">${fmtRemaining(until)}</span></span>`;
