@@ -47,6 +47,7 @@ class Input:
     pin: str = ""  # physical pin / ADS channel — drives the ESPHome pin (FDS §4.1)
     inverted: bool = False  # (rain/button) NO/NC wiring — pin inversion at the ESPHome pin
     threshold_pct: int = 0  # (soil) ab hier „feucht genug" → Sperre
+    smoothing_s: int = 0  # (analog: pressure/soil) on-device moving-average window in seconds; 0 = off (FR-S16)
     entity: str | None = None  # ESPHome sensor.*/binary_sensor.* entity_id
     calibration: dict[str, Any] = field(default_factory=dict)
 

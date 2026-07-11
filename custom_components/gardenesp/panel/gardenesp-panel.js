@@ -1119,6 +1119,9 @@ class GardenEspPanel extends HTMLElement {
     if (inp.kind === "rain") param = inp.inverted ? "Schließer (NO)" : "Öffner (NC)";
     else if (inp.kind === "soil_moisture") param = `Schwelle ${inp.threshold_pct || 0} %`;
     else if (inp.kind === "button" && inp.inverted) param = "invertiert";
+    // analog inputs (pressure/soil) may carry an on-device smoothing window (FR-S16)
+    if ((inp.kind === "pressure" || inp.kind === "soil_moisture") && Number(inp.smoothing_s) > 0)
+      param = (param ? param + " · " : "") + `Glättung ${inp.smoothing_s} s`;
     return `<div class="devrow">
       <span class="chip">${esc(this._inputPinLabel(inp.pin, b.hw_type))}</span>
       <span class="dname">${esc(inp.name || inp.id)}</span>
@@ -1461,16 +1464,21 @@ class GardenEspPanel extends HTMLElement {
     const ins = (d.inputs || [])
       .map((inp, i) => {
         // rain/soil inputs double as blocking sensors → extra param; same column for all (FR-UX).
+        // Analog inputs (pressure/soil) additionally carry an on-device smoothing window (FR-S16).
         let extra;
+        const smooth = (inp.kind === "pressure" || inp.kind === "soil_moisture")
+          ? smoothingSelect(`inputs.${i}.smoothing_s`, inp.smoothing_s) : "";
         if (inp.kind === "rain")
           // inverted=false = Öffner/NC (öffnet bei Regen, z. B. RainClik) → keine Pin-Invertierung;
           // inverted=true = Schließer/NO (schließt bei Regen) → Pin invertiert. Entity stets on=nass.
           extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "Schließer (NO)", "Öffner (NC) · RainClik");
         else if (inp.kind === "soil_moisture")
-          extra = numInline(`inputs.${i}.threshold_pct`, inp.threshold_pct, "Schwelle %");
+          extra = `<span class="inx">${numInline(`inputs.${i}.threshold_pct`, inp.threshold_pct, "Schwelle %")}${smooth}</span>`;
         else if (inp.kind === "button")
           // generic binary input (FR-S14): polarity only, no block semantics
           extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "invertiert (Ruhe = an)", "normal (Ruhe = aus)");
+        else if (inp.kind === "pressure")
+          extra = smooth;
         else
           extra = `<select disabled title="kein Parameter"><option>—</option></select>`;
         return `<div class="subrow inrow">
@@ -1935,7 +1943,7 @@ class GardenEspPanel extends HTMLElement {
       const el = e.currentTarget;
       this._draft.outputs[+el.dataset.conn].connected = el.value ? [el.value] : [];
     });
-    on("[data-addin]", "onclick", () => this._addRow("inputs", { id: this._localId("i", this._draft.inputs), kind: "pressure", name: "", pin: this._firstFreeInputPin(this._draft.hw_type, "pressure"), inverted: false, threshold_pct: 40, entity: "", calibration: {} }));
+    on("[data-addin]", "onclick", () => this._addRow("inputs", { id: this._localId("i", this._draft.inputs), kind: "pressure", name: "", pin: this._firstFreeInputPin(this._draft.hw_type, "pressure"), inverted: false, threshold_pct: 40, smoothing_s: 0, entity: "", calibration: {} }));
     on("[data-delout]", "onclick", (e) => this._delRow("outputs", +e.currentTarget.dataset.delout));
     on("[data-delin]", "onclick", (e) => this._delRow("inputs", +e.currentTarget.dataset.delin));
     on("[data-addsched]", "onclick", () => this._addRow("schedule", { repeat: "daily", time: "06:00", duration_min: 10, weekdays: [], monthdays: [], enabled: true }));
@@ -2157,6 +2165,15 @@ function boolSelect(path, val, trueLabel, falseLabel) {
     <option value="false" ${!val ? "selected" : ""}>${esc(falseLabel)}</option>
     <option value="true" ${val ? "selected" : ""}>${esc(trueLabel)}</option></select>`;
 }
+// On-device measurement smoothing (moving average) in seconds; 0 = off (FR-S16). The
+// window is derived from the sensor's update_interval server-side, so seconds is the
+// portable unit. Changing it re-flashes the box (config-hash changes).
+function smoothingSelect(path, val) {
+  const cur = Number(val) || 0;
+  const opts = [[0, "keine Glättung"], [30, "Glättung 30 s"], [60, "Glättung 60 s"], [90, "Glättung 90 s"]];
+  const o = opts.map(([v, l]) => `<option value="${v}" ${cur === v ? "selected" : ""}>${esc(l)}</option>`).join("");
+  return `<select data-path="${path}" data-type="num" title="Messwert-Glättung am Gerät (gleitender Mittelwert); Änderung erfordert Reflash">${o}</select>`;
+}
 
 // --- generic helpers ---------------------------------------------------------
 // Real text width (canvas) — used to size the wiring-diagram device boxes so they hug
@@ -2311,6 +2328,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
    Grid items stretch to their track by default; min-width:0 (above) keeps selects from
    overflowing on long option labels. */
 .subrow.inrow { display: grid; grid-template-columns: 2.2fr 1.4fr 1fr 1.6fr auto; }
+.subrow .inx { display: flex; gap: 6px; min-width: 0; }   /* soil: threshold + smoothing share one cell */
+.subrow .inx > * { flex: 1 1 0; min-width: 0; }
 .subrow input.wide { flex-grow: 2.2; }      /* name column — wider */
 .subrow input.narrow { width: auto; flex-grow: 0.66; }  /* Not-Aus min — ~1/3 shorter */
 .subrow input.ro { flex-grow: 0.5;          /* read-only (auto-conn / polarity) — ~50% shorter */

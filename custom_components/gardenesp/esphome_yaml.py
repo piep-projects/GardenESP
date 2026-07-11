@@ -642,6 +642,35 @@ def _sensors(box: dict[str, Any], hw: str) -> list[str]:
     return out
 
 
+def _filters_block(items: list[list[str]]) -> list[str]:
+    """A ``filters:`` YAML block built from filter items (each item = its own list
+    of lines, e.g. ``["      - multiply: 10"]``). Empty → no block emitted at all."""
+    if not items:
+        return []
+    out = ["    filters:"]
+    for it in items:
+        out += it
+    return out
+
+
+def _smoothing_item(inp: dict[str, Any], interval_s: float) -> list[str]:
+    """Optional on-device ``sliding_window_moving_average`` filter item derived from
+    the input's ``smoothing_s`` (seconds; 0/absent = off → empty list). The window is
+    computed from the sensor's own ``update_interval`` so the *time* constant is
+    consistent across sensor types (GC 4-20 mA 3 s, GC ADC 2 s, WROOM 10 s). A moving
+    average is the best fit for this level noise — it is Gaussian/low-frequency and
+    spike-free, so averaging beats a median (measured on the live cisterns). FR-S16."""
+    sec = int(inp.get("smoothing_s") or 0)
+    if sec <= 0:
+        return []
+    window = max(2, round(sec / interval_s))
+    return [
+        "      - sliding_window_moving_average:",
+        f"          window_size: {window}",
+        "          send_every: 1",
+    ]
+
+
 def _pressure_sensor(
     inp: dict[str, Any], sid: str, name: str, hw: str, idx: dict[str, int]
 ) -> tuple[list[str], str]:
@@ -651,17 +680,18 @@ def _pressure_sensor(
     # GardenControl branch used to sit here emitting `gain: 6.144` / `V` — dead code
     # that contradicted the real template and cost a long field debugging session.
     #
-    # WROOM/custom: smooth the noisy 4-20 mA / analog level reading on-device.
-    # Raw ADC voltage (NOT mbar) — the calibration table maps raw → liters (FR-S5a).
+    # WROOM/custom: a median filter kills spikes on the noisy 4-20 mA / analog level
+    # reading; an optional moving average (smoothing_s) smooths further. Raw ADC
+    # voltage (NOT mbar) — the calibration table maps raw → liters (FR-S5a).
     return _adc_sensor(
         inp, sid, name, hw, idx, "mdi:gauge", unit="V",
-        filters=["    filters:", "      - median:", "          window_size: 5", "          send_every: 1"],
+        filter_items=[["      - median:", "          window_size: 5", "          send_every: 1"]],
     )
 
 
 def _adc_sensor(
     inp: dict[str, Any], sid: str, name: str, hw: str, idx: dict[str, int], icon: str,
-    unit: str | None = None, filters: list[str] | None = None,
+    unit: str | None = None, filter_items: list[list[str]] | None = None,
 ) -> tuple[list[str], str]:
     pool = _GC_ADC_PINS if hw == HW_GARDENCONTROL else _WROOM_ADC_PINS
     pin = _resolve_pin(inp, pool, idx, "adc", strict=hw == HW_GARDENCONTROL)
@@ -676,8 +706,9 @@ def _adc_sensor(
     ]
     if unit:
         lines.append(f"    unit_of_measurement: {unit}")
-    if filters:
-        lines.extend(filters)
+    items = list(filter_items or [])
+    items += [_smoothing_item(inp, 10)] if _smoothing_item(inp, 10) else []
+    lines += _filters_block(items)
     return (lines, pin)
 
 
@@ -978,7 +1009,8 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
     L += ["", "# ─── Analog inputs (4× ADC 0-12V + 2× 4-20mA) ───────────────────────────", "sensor:"]
     adc_label = {"GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4"}
     for pin in _GC_ADC_PINS:
-        nm = ascii_fold((inputs.get(pin) or {}).get("name") or adc_label[pin])
+        inp = inputs.get(pin) or {}
+        nm = ascii_fold(inp.get("name") or adc_label[pin])
         L += [
             "  - platform: adc",
             f"    pin: {pin}",
@@ -986,13 +1018,18 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             "    attenuation: 11db",
             "    accuracy_decimals: 2",
             "    update_interval: 2s",
-            "    filters: [ { multiply: 4 } ]",  # board divider → 0-12 V range
         ]
+        sm = _smoothing_item(inp, 2)  # ADC update_interval 2 s
+        if sm:  # board divider (×4 → 0-12 V) + optional moving average (FR-S16)
+            L += _filters_block([["      - multiply: 4"], sm])
+        else:
+            L += ["    filters: [ { multiply: 4 } ]"]  # board divider → 0-12 V range
     # Terminal IN1 → ADS A1, IN2 → A0 (board crossing, see _GC_ADS_MUX). The
     # `multiply: 10` turns the volts across the 100 Ω shunt into mA (20 mA = 2.000 V,
     # exactly the gain: 2.048 full scale).
     for term in _GC_ADS_CHANNELS:
-        nm = ascii_fold((inputs.get(term) or {}).get("name") or term)
+        inp = inputs.get(term) or {}
+        nm = ascii_fold(inp.get("name") or term)
         L += [
             "  - platform: ads1115",
             f"    multiplexer: {_GC_ADS_MUX[term]}_GND",
@@ -1003,8 +1040,12 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             "    device_class: current",
             "    accuracy_decimals: 1",
             "    update_interval: 3s",
-            "    filters: [ { multiply: 10 } ]",
         ]
+        sm = _smoothing_item(inp, 3)  # ADS update_interval 3 s
+        if sm:  # 100 Ω shunt V→mA (×10) + optional moving average (FR-S16)
+            L += _filters_block([["      - multiply: 10"], sm])
+        else:
+            L += ["    filters: [ { multiply: 10 } ]"]
     # S0 / pulse counters (on whichever binary inputs an S0 meter is assigned to).
     for pin in pulse_pins:
         nm = ascii_fold((inputs.get(pin) or {}).get("name") or "S0 Zähler")

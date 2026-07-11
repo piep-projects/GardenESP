@@ -296,6 +296,61 @@ class TestEsp32Wroom(unittest.TestCase):
         with self.assertRaises(gen.YamlGenError):
             gen.generate_box_yaml(_box(hw_type="esp32_wroom", outputs=outs))
 
+
+class TestSmoothing(unittest.TestCase):
+    """Optional per-input on-device moving-average smoothing (FR-S16)."""
+
+    def test_off_by_default_keeps_inline_gc_filter(self):
+        # No smoothing_s → GC 4-20 mA keeps the exact inline filter (no hash change,
+        # no forced reflash for existing boxes).
+        yaml = gen.generate_box_yaml(_box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"}]))
+        self.assertIn("filters: [ { multiply: 10 } ]", yaml)
+        self.assertNotIn("sliding_window_moving_average", yaml)
+
+    def test_gc_4_20ma_window_from_seconds(self):
+        # 60 s at the ADS 3 s update_interval → window 20.
+        yaml = gen.generate_box_yaml(_box(inputs=[
+            {"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1", "smoothing_s": 60}]))
+        self.assertIn("sliding_window_moving_average:", yaml)
+        self.assertIn("window_size: 20", yaml)
+        self.assertIn("- multiply: 10", yaml)  # shunt conversion preserved
+
+    def test_gc_soil_adc_window_from_seconds(self):
+        # 60 s at the ADC 2 s update_interval → window 30.
+        yaml = gen.generate_box_yaml(_box(inputs=[
+            {"id": "i1", "kind": "soil_moisture", "name": "Beet", "pin": "GPIO32", "smoothing_s": 60}]))
+        self.assertIn("sliding_window_moving_average:", yaml)
+        self.assertIn("window_size: 30", yaml)
+        self.assertIn("- multiply: 4", yaml)
+
+    def test_wroom_pressure_keeps_median_and_adds_average(self):
+        # 60 s at the WROOM 10 s update_interval → window 6, median spike filter stays.
+        yaml = gen.generate_box_yaml(_box(hw_type="esp32_wroom", inputs=[
+            {"id": "i1", "kind": "pressure", "name": "Tank", "smoothing_s": 60}]))
+        self.assertIn("median:", yaml)
+        self.assertIn("sliding_window_moving_average:", yaml)
+        self.assertIn("window_size: 6", yaml)
+
+    def test_only_configured_input_gets_filter(self):
+        # Two 4-20 mA terminals; only the one with smoothing_s is affected.
+        yaml = gen.generate_box_yaml(_box(inputs=[
+            {"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1", "smoothing_s": 60},
+            {"id": "i2", "kind": "pressure", "name": "Regentonne", "pin": "IN2"}]))
+        self.assertEqual(yaml.count("sliding_window_moving_average"), 1)
+        self.assertIn("filters: [ { multiply: 10 } ]", yaml)  # IN2 stays inline
+
+    def test_window_never_below_two(self):
+        # A tiny window (< one interval) is clamped to 2, never 0/1.
+        yaml = gen.generate_box_yaml(_box(inputs=[
+            {"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1", "smoothing_s": 1}]))
+        self.assertIn("window_size: 2", yaml)
+
+    def test_smoothing_changes_config_hash(self):
+        # Turning smoothing on changes the firmware → drift → reflash (by design).
+        off = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"}])
+        on = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1", "smoothing_s": 60}])
+        self.assertNotEqual(gen.box_config_hash(off), gen.box_config_hash(on))
+
     def test_explicit_gpio_drives_output(self):
         box = _box(hw_type="esp32_wroom", outputs=[{"id": "v1", "type": "valve", "name": "Beeren", "gpio": "GPIO23"}])
         self.assertIn("number: GPIO23", gen.generate_box_yaml(box))
