@@ -154,7 +154,7 @@ class GardenEspPanel extends HTMLElement {
       this._topology = (topo && topo.strands) || [];
       this._error = null;
     } catch (err) {
-      this._error = err && err.message ? err.message : String(err);
+      this._error = errText(err);
     } finally {
       this._loading = false;
       this._render();
@@ -182,7 +182,7 @@ class GardenEspPanel extends HTMLElement {
     try {
       await this._ws(msg);
     } catch (err) {
-      this._toast(`${label} fehlgeschlagen: ${err.message || err}`);
+      this._toast(`${label} fehlgeschlagen: ${errText(err)}`);
     }
     await this._load();
   }
@@ -204,7 +204,7 @@ class GardenEspPanel extends HTMLElement {
       this._draft = null;
       await this._load();
     } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${err.message || err}`);
+      this._toast(`Speichern fehlgeschlagen: ${errText(err)}`);
     }
   }
 
@@ -436,7 +436,9 @@ class GardenEspPanel extends HTMLElement {
     const root = this.shadowRoot && this.shadowRoot.getElementById("root");
     if (!root) return;
     if (this._loading) return void (root.innerHTML = `<div class="empty">Lade…</div>`);
-    if (this._error)
+    // Only take over the whole panel before the first successful load; a later
+    // refresh failure (dropped WS on a backgrounded app) keeps the panel usable.
+    if (this._error && !this._data)
       return void (root.innerHTML = `<div class="empty err">Fehler: ${esc(this._error)}</div>`);
 
     let body;
@@ -1149,7 +1151,8 @@ class GardenEspPanel extends HTMLElement {
     }
     const unit = (st.attributes && st.attributes.unit_of_measurement) || "";
     const num = parseFloat(st.state);
-    const val = isNaN(num) ? st.state : Math.round(num * 10) / 10;
+    // 4-20 mA pressure sensor drifts by hundredths → 3 decimals; everything else 1.
+    const val = isNaN(num) ? st.state : (unit === "mA" ? num.toFixed(3) : Math.round(num * 10) / 10);
     return `<span class="live" title="aktueller Wert">${esc(val)}${unit ? " " + esc(unit) : ""}</span>`;
   }
 
@@ -1538,7 +1541,7 @@ class GardenEspPanel extends HTMLElement {
         this._toast("Keine Entities gefunden — Steuergerät flashen und in HA als ESPHome-Gerät hinzufügen.");
       else this._toast(`${r.resolved}/${r.total} Entities abgeglichen.`);
     } catch (err) {
-      this._toast(`Abgleich: ${err.message || err}`);
+      this._toast(`Abgleich: ${errText(err)}`);
       return;
     }
     await this._load();
@@ -1550,7 +1553,7 @@ class GardenEspPanel extends HTMLElement {
       const res = await this._ws({ type: "gardenesp/box/yaml", box_id: boxId });
       this._yaml = { box_id: boxId, text: res.yaml, node: res.node_name };
     } catch (err) {
-      this._toast(`YAML: ${err.message || err}`);
+      this._toast(`YAML: ${errText(err)}`);
       return;
     }
     this._render();
@@ -1573,7 +1576,7 @@ class GardenEspPanel extends HTMLElement {
       const data = await this._ws({ type: "gardenesp/wiring", box_id: boxId });
       this._wiring = { box_id: boxId, data };
     } catch (err) {
-      this._toast(`Verdrahtung: ${err.message || err}`);
+      this._toast(`Verdrahtung: ${errText(err)}`);
       return;
     }
     this._render();
@@ -2027,7 +2030,7 @@ class GardenEspPanel extends HTMLElement {
       await this._load();
       this._toast("Einstellungen gespeichert");
     } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${err.message || err}`);
+      this._toast(`Speichern fehlgeschlagen: ${errText(err)}`);
     }
   }
   _onWeekday(e) {
@@ -2172,6 +2175,23 @@ function textWidth(s, font) {
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// Turn any thrown/rejected value into a readable German message — never "[object
+// Object]". HA rejects WS calls with {code,message}, or a bare numeric code when
+// the connection drops (routine when the iOS app is backgrounded). Mirrors the Card.
+function errText(err) {
+  if (err == null) return "Unbekannter Fehler";
+  if (typeof err === "string") return err;
+  if (typeof err === "number")
+    return { 1: "Verbindung zu Home Assistant nicht möglich", 2: "Anmeldung ungültig",
+      3: "Verbindung zu Home Assistant unterbrochen" }[err] || `Fehler ${err}`;
+  if (typeof err === "object") {
+    if (err.message) return String(err.message);
+    if (err.error && err.error.message) return String(err.error.message);
+    if (err.code != null) return `Fehler ${err.code}`;
+    try { return JSON.stringify(err); } catch (e) { /* circular */ }
+  }
+  return String(err);
+}
 // Consumption volume: liters, switching to m³ above 1000 L (mirrors the Card).
 function fmtVol(liters) {
   const v = Number(liters) || 0;
@@ -2196,7 +2216,7 @@ const CSS = `
 .headbtns { display: inline-flex; align-items: center; gap: 6px; }
 h1 { font-size: 22px; margin: 8px 0 12px; color: var(--primary-text-color);
   display: inline-flex; align-items: center; gap: 8px; }
-h1 ha-icon { --mdc-icon-size: 26px; color: var(--primary-color); }
+h1 ha-icon { --mdc-icon-size: 26px; color: #43A047; } /* brand green (icon.png), not theme --primary-color */
 h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); margin: 0 0 8px; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .tab { border: none; background: transparent; padding: 8px 14px; border-radius: 8px; cursor: pointer;

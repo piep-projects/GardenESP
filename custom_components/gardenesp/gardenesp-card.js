@@ -130,7 +130,9 @@ class GardenEspCard extends HTMLElement {
       this._history = (hist && hist.entries) || [];
       this._error = null;
     } catch (err) {
-      this._error = err && err.message ? err.message : String(err);
+      // Keep the last good data on screen — a dropped WS (backgrounded iOS app)
+      // self-heals on the next poll; only the very first load has nothing to show.
+      this._error = errText(err);
     } finally {
       this._loading = false;
       this._render();
@@ -148,7 +150,7 @@ class GardenEspCard extends HTMLElement {
     try {
       await this._ws(msg);
     } catch (err) {
-      this._toast(`${label} fehlgeschlagen: ${err.message || err}`);
+      this._toast(`${label} fehlgeschlagen: ${errText(err)}`);
     }
     await this._load();
   }
@@ -252,7 +254,10 @@ class GardenEspCard extends HTMLElement {
       card.innerHTML = `${hd}</div><div class="empty">Lade…</div>`;
       return;
     }
-    if (this._error) {
+    // Only take over the whole card when we have nothing to show yet. A refresh
+    // failure while data is already loaded keeps the dashboard visible (the poll
+    // recovers on its own) instead of stranding the user on an error screen.
+    if (this._error && !this._data) {
       card.innerHTML = `${hd}</div><div class="empty err">Fehler: ${esc(this._error)}</div>`;
       return;
     }
@@ -306,13 +311,19 @@ class GardenEspCard extends HTMLElement {
 
   // detail = "kind:id" → the whole row is clickable and opens that Details overlay.
   // ``right`` = right-aligned value/status (sensors & sources); omit ``line2`` → single-line row.
-  _row(icon, detail, line1, line2, right, action) {
+  _row(icon, detail, line1, line2, right, action, actsClass = "") {
     return `<div class="row${detail ? " clickable" : ""}"${detail ? ` data-rowdetails="${detail}"` : ""}>
       <ha-icon class="ico" icon="${icon}"></ha-icon>
       <div class="grow"><div class="t">${line1}</div>${line2 ? `<div class="s">${line2}</div>` : ""}</div>
       <div class="rgt">${right || ""}</div>
-      <div class="acts">${action || ""}</div>
+      <div class="acts${actsClass ? " " + actsClass : ""}">${action || ""}</div>
     </div>`;
+  }
+  // The inline duration timer is much wider than the compact ▶/■ icon; kept in the
+  // narrow action column it crushes the content column and the text wraps one word
+  // per line. When it's open the row breaks it onto its own full-width line (.acts.full).
+  _timerOpen(id) {
+    return !!(this._inline && this._inline.kind === "line" && this._inline.id === id);
   }
 
   // --- line row --------------------------------------------------------------
@@ -345,7 +356,7 @@ class GardenEspCard extends HTMLElement {
     const line1 = `<span class="nm">${label}</span> ${badge}${auto}`;
     // A deactivated box is out of service — no manual start from the dashboard.
     const action = boxOff ? "" : this._lineActions(ln, status);
-    return this._row(ICONS.line, `line:${esc(id)}`, line1, sub, "", action);
+    return this._row(ICONS.line, `line:${esc(id)}`, line1, sub, "", action, this._timerOpen(id) ? "full" : "");
   }
 
   _lineActions(ln, status) {
@@ -395,7 +406,7 @@ class GardenEspCard extends HTMLElement {
     }
     const line1 = `<span class="nm">${esc(ln.name || id)}</span> ${badge}${auto}`;
     const action = boxOff ? "" : this._lineActions(ln, status);  // ▶/■ shared with lines
-    return this._row(ICONS.control, `line:${esc(id)}`, line1, sub, "", action);
+    return this._row(ICONS.control, `line:${esc(id)}`, line1, sub, "", action, this._timerOpen(id) ? "full" : "");
   }
 
   // --- source row ------------------------------------------------------------
@@ -771,6 +782,24 @@ class GardenEspCard extends HTMLElement {
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// Turn any thrown/rejected value into a readable German message — never "[object
+// Object]". HA rejects WS calls with {code,message} on command errors and with a
+// bare numeric code (home-assistant-js-websocket) when the connection drops, which
+// happens routinely when the iOS app is backgrounded.
+function errText(err) {
+  if (err == null) return "Unbekannter Fehler";
+  if (typeof err === "string") return err;
+  if (typeof err === "number")
+    return { 1: "Verbindung zu Home Assistant nicht möglich", 2: "Anmeldung ungültig",
+      3: "Verbindung zu Home Assistant unterbrochen" }[err] || `Fehler ${err}`;
+  if (typeof err === "object") {
+    if (err.message) return String(err.message);
+    if (err.error && err.error.message) return String(err.error.message);
+    if (err.code != null) return `Fehler ${err.code}`;
+    try { return JSON.stringify(err); } catch (e) { /* circular */ }
+  }
+  return String(err);
+}
 // Volume for the consumption summary: liters, switching to m³ above 1000 L.
 function fmtVol(liters) {
   const v = Number(liters) || 0;
@@ -870,7 +899,7 @@ ha-card { padding: 12px 14px; position: relative; }
   display: flex; align-items: center; justify-content: space-between;
   background: var(--secondary-background-color); padding: 6px 10px; border-radius: 8px; }
 .ttl { display: inline-flex; align-items: center; gap: 6px; }
-.hd ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+.hd ha-icon { --mdc-icon-size: 20px; color: #43A047; } /* brand green (icon.png), not theme --primary-color */
 .open { text-decoration: none; font-size: 18px; color: var(--secondary-text-color); }
 .grouphd { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   color: var(--secondary-text-color); margin: 12px 0 2px; padding-top: 8px;
@@ -893,13 +922,27 @@ table.hist tr.fault td { color: var(--warning-color, #ff9800); }
 .warnText { color: var(--info-color, #2196f3); }
 .rgt { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; text-align: right; }
 .acts { display: inline-flex; align-items: center; gap: 6px; }
-.iconbtn { border: none; background: transparent; cursor: pointer; padding: 4px; border-radius: 8px;
-  display: inline-flex; align-items: center; }
-.iconbtn ha-icon { --mdc-icon-size: 22px; color: var(--secondary-text-color); }
+/* Inline timer open → break it onto its own full-width line so the content column
+   keeps its width and the Letzte/Nächste text stops wrapping one word per line. */
+.acts.full { grid-column: 1 / -1; justify-content: flex-start; margin-top: 6px; padding-left: 32px; }
+.acts.full .timer { flex-wrap: wrap; }
+/* Visible 44px circular button + a pseudo-element that extends the *touch* target
+   ~6px beyond the visual bounds (::after). The tinted circle gives an affordance
+   (the bare 22px glyph was easy to miss) and the overlay captures near-misses —
+   independent of how flex/grid sizes the transparent box. Apple HIG ≥44px. */
+.iconbtn { border: none; cursor: pointer; padding: 0; border-radius: 50%; position: relative;
+  width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--secondary-background-color); -webkit-tap-highlight-color: transparent; }
+.iconbtn::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.iconbtn ha-icon { --mdc-icon-size: 24px; color: var(--secondary-text-color); }
+.iconbtn.primary { background: rgba(67, 160, 71, .16); }
 .iconbtn.primary ha-icon { color: var(--primary-color); }
+.iconbtn.warn { background: rgba(255, 152, 0, .18); }
 .iconbtn.warn ha-icon { color: var(--warning-color, #ff9800); }
+.iconbtn.stop { background: rgba(244, 67, 54, .16); }
 .iconbtn.stop ha-icon { color: var(--error-color, #f44336); }
-.iconbtn:hover { background: var(--secondary-background-color); }
+.iconbtn:active { filter: brightness(.9); }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
   background: var(--secondary-background-color); color: var(--primary-text-color); }
 .badge.ok { background: var(--success-color, #4caf50); color: #fff; }
@@ -917,7 +960,9 @@ table.hist tr.fault td { color: var(--warning-color, #ff9800); }
 .histbtn { display: inline-flex; align-items: center; gap: 6px; padding-left: 0; margin: 2px 0 4px; }
 .histbtn ha-icon { --mdc-icon-size: 18px; }
 .timer { display: inline-flex; align-items: center; gap: 6px; }
-.mininput { width: 56px; padding: 5px 6px; border-radius: 8px; font-size: 12px;
+/* font-size must be >=16px: iOS Safari auto-zooms the whole page on focus of any
+   smaller input (the HA app disables that, hence "app is fine, only Safari shifts"). */
+.mininput { width: 64px; padding: 6px 6px; border-radius: 8px; font-size: 16px;
   border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color); color: var(--primary-text-color); }
 .unit { font-size: 12px; color: var(--secondary-text-color); }
 .bar { height: 5px; border-radius: 4px; margin-top: 6px; overflow: hidden; background: var(--divider-color, #eee); max-width: 260px; }
