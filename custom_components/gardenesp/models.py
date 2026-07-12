@@ -144,6 +144,7 @@ class Source:
     calibration_points: list[dict[str, Any]] = field(default_factory=list)
     max_volume_l: int = 0
     min_fill_pct: int = 0
+    level_deadband_l: float = 0.0  # hysteresis on the published level, 0 = off (FR-S17)
     pump_output: str | None = None
     tank_settle_min: int = 0
     meter_input: str | None = None

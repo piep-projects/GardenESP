@@ -894,13 +894,15 @@ function _hms(total) {
 }
 
 const CSS = `
-ha-card { padding: 12px 14px; position: relative; }
-.hd { font-size: 16px; font-weight: 500; color: var(--primary-text-color); margin-bottom: 8px;
+/* Brand green (= brand/icon.png), deliberately not the theme --primary-color. */
+ha-card { padding: 12px 14px; position: relative;
+  border: 1px solid #43A047; --ha-card-border-color: #43A047; }
+.hd { font-size: 16px; font-weight: 500; color: #fff; margin-bottom: 8px;
   display: flex; align-items: center; justify-content: space-between;
-  background: var(--secondary-background-color); padding: 6px 10px; border-radius: 8px; }
+  background: #43A047; padding: 6px 10px; border-radius: 8px; }
 .ttl { display: inline-flex; align-items: center; gap: 6px; }
-.hd ha-icon { --mdc-icon-size: 20px; color: #43A047; } /* brand green (icon.png), not theme --primary-color */
-.open { text-decoration: none; font-size: 18px; color: var(--secondary-text-color); }
+.hd ha-icon { --mdc-icon-size: 20px; color: #fff; }
+.open { text-decoration: none; font-size: 18px; color: #fff; }
 .grouphd { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   color: var(--secondary-text-color); margin: 12px 0 2px; padding-top: 8px;
   border-top: 1px solid var(--divider-color, #eee); }

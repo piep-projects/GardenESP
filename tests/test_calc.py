@@ -174,5 +174,44 @@ class TestRestartCounts(unittest.TestCase):
         self.assertEqual(calc.restart_counts(10.0, 7.0, 5.0), (3, 2))
 
 
+class TestDeadband(unittest.TestCase):
+    """FR-S17 — hysteresis on the published cistern level."""
+
+    def test_off_passes_through(self):
+        self.assertEqual(calc.deadband(2007.3, 2010.0, 0), 2007.3)
+        self.assertEqual(calc.deadband(2007.3, 2010.0, -1), 2007.3)
+
+    def test_first_reading_adopted(self):
+        self.assertEqual(calc.deadband(2007.3, None, 5), 2007.3)
+
+    def test_holds_inside_band(self):
+        self.assertEqual(calc.deadband(2012.9, 2010.0, 5), 2010.0)
+        self.assertEqual(calc.deadband(2007.1, 2010.0, 5), 2010.0)
+
+    def test_jumps_at_band(self):
+        self.assertEqual(calc.deadband(2015.0, 2010.0, 5), 2015.0)  # exactly ±band
+        self.assertEqual(calc.deadband(2005.0, 2010.0, 5), 2005.0)
+        self.assertEqual(calc.deadband(1900.0, 2010.0, 5), 1900.0)  # a real run
+
+    def test_no_flicker_on_a_boundary(self):
+        """Noise straddling a value never bounces the display — the reference
+        moves with it (unlike rounding, whose step boundaries are fixed)."""
+        held, shown = 2010.0, []
+        for v in (2012.4, 2007.6, 2013.9, 2006.2, 2011.0):
+            held = calc.deadband(v, held, 5)
+            shown.append(held)
+        self.assertEqual(shown, [2010.0] * 5)
+
+    def test_slow_drift_follows_in_steps(self):
+        held, jumps = 2000.0, 0
+        for i in range(1, 21):  # +0.5 L per read → +10 L overall
+            new = calc.deadband(2000.0 + i * 0.5, held, 5)
+            if new != held:
+                jumps += 1
+            held = new
+        self.assertEqual(jumps, 2)  # steps at +5 L and +10 L
+        self.assertEqual(held, 2010.0)
+
+
 if __name__ == "__main__":
     unittest.main()

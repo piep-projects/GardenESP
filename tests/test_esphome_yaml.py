@@ -102,8 +102,24 @@ class TestGardenControl(unittest.TestCase):
         self.assertNotIn("Größere", yaml)
 
     def test_pump_channel_maps_to_relay_pin(self):
+        # The board crosses the relay pins against their printed labels: the screw
+        # printed R2 hangs on MCP pin **12**, R1 on pin 13 (manufacturer-confirmed).
         box = _box(outputs=[{"id": "p1", "type": "pump", "name": "Pumpe", "channel": "R2"}])
-        self.assertIn("number: 13", gen.generate_box_yaml(box))
+        self.assertIn("number: 12", gen.generate_box_yaml(box))
+
+    def test_relay_pins_are_crossed_leds_are_not(self):
+        box = _box(outputs=[
+            {"id": "p1", "type": "pump", "name": "PumpeEins", "channel": "R1"},
+            {"id": "p2", "type": "pump", "name": "PumpeZwei", "channel": "R2"},
+        ])
+        y = gen.generate_box_yaml(box)
+        r1 = y.index('name: "PumpeEins"')
+        r2 = y.index('name: "PumpeZwei"')
+        blk1, blk2 = y[r1:r2], y[r2:]
+        self.assertIn("number: 13", blk1)  # R1 → pin 13
+        self.assertIn("gc_led_relais_1", blk1)  # …but LED 1 stays with R1
+        self.assertIn("number: 12", blk2)  # R2 → pin 12
+        self.assertIn("gc_led_relais_2", blk2)
 
     def test_pressure_on_ads_with_name_and_gain(self):
         box = _box(inputs=[{"id": "i1", "kind": "pressure", "name": "Zisterne", "pin": "IN1"}])

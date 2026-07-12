@@ -191,6 +191,13 @@ class GardenControlTest(unittest.TestCase):
         self.assertEqual(terms["R1"]["assignment"]["short_id"], "GR1")
         self.assertEqual(terms["R2"]["assignment"]["name"], "Springbrunnen")
 
+    def test_relais_board_order_r2_left_of_r1(self):
+        # Field-verified silkscreen: the relay terminals read COM·COM·R2·R1·24VAC·24VAC
+        # (R2 physically LEFT of R1 — printed label reversed vs pin naming, but the
+        # LED/function are correct). The lens must mirror the real board.
+        labels = [c["label"] for c in self.out["grid"]["top_upper"]]
+        self.assertEqual(labels[6:10], ["COM", "COM", "R2", "R1"])
+
     def test_inputs_on_terminals_by_pin(self):
         terms = self._terminals()
         self.assertEqual(terms["IN1"]["assignment"]["name"], "Zisterne Pegel")

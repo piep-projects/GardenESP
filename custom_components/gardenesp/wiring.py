@@ -306,7 +306,12 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
             _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
-            _c("R1", "Relais 1 (230 V)"), _c("R2", "Relais 2 (230 V)"),
+            # Field-verified board order: R2 sits LEFT of R1. The silkscreen print is
+            # reversed vs the pin naming (R2 = MCP pin 13, R1 = pin 12); LED/function
+            # are correct, only the printed label is swapped. Match the real board so
+            # the lens points at the right screw.
+            _c("R2", "Relais 2 (24 VAC-Ausgang → Koppelrelais)"),
+            _c("R1", "Relais 1 (24 VAC-Ausgang → Koppelrelais)"),
             _c("24VAC", "Versorgung 24 VAC", True), _c("24VAC", "Versorgung 24 VAC", True),
         ],
         "top_lower": [

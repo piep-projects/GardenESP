@@ -75,7 +75,13 @@ class YamlGenError(ValueError):
 # 2× 4-20 mA inputs (ADS1115, e.g. water level); 4× ADC 0-12 V inputs (humidity/
 # pressure/temperature); 3× binary inputs (switches / S0 meter / rain sensor).
 _GC_VALVE_PINS = 12
-_GC_PUMP_CHANNELS = ["R1", "R2"]  # map onto MCP pins 12/13
+_GC_PUMP_CHANNELS = ["R1", "R2"]  # printed terminal labels
+# The board **crosses** the relay outputs against the vendor firmware's pin naming:
+# the screw printed **R1 is driven by MCP pin 13**, R2 by pin 12 (manufacturer-confirmed
+# 2026-07-12 — the silkscreen stays, the pins swap). The LED assignment is *not* crossed
+# (R1 → LED 3, R2 → LED 2 is correct as printed), so only the pin travels.
+_GC_RELAY_PIN = {"R1": 13, "R2": 12}
+_GC_RELAY_LED = {"R1": 3, "R2": 2}
 # 4-20 mA inputs are addressed by their **printed terminal label** (IN1/IN2); the
 # ADS1115 multiplexer is resolved only at generation time. The board crosses them:
 # terminal IN1 sits on ADS **A1**, IN2 on **A0** — verified against the vendor
@@ -978,8 +984,11 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
         sw, sc = _gc_output_block(ov, f"Ventil {c}", c - 1, 16 - c, f"gc_led_valve_{c}", co.get(ov.get("id")) if ov else None)
         L += sw
         scripts += sc
-    for idx, rid in enumerate(_GC_PUMP_CHANNELS):  # R1→pin12/LED3, R2→pin13/LED2
-        sw, sc = _gc_output_block(relais.get(rid), f"Relais {idx + 1}", 12 + idx, 3 - idx, f"gc_led_relais_{idx + 1}")
+    for idx, rid in enumerate(_GC_PUMP_CHANNELS):  # R1→pin13/LED3, R2→pin12/LED2 (crossed pins)
+        sw, sc = _gc_output_block(
+            relais.get(rid), f"Relais {idx + 1}", _GC_RELAY_PIN[rid], _GC_RELAY_LED[rid],
+            f"gc_led_relais_{idx + 1}",
+        )
         L += sw
         scripts += sc
     if scripts:

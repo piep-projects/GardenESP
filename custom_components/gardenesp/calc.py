@@ -24,6 +24,20 @@ def liters_from_pressure(
     return float(liters)
 
 
+def deadband(value: float, last: float | None, band: float) -> float:
+    """Hysteresis for the published cistern level (FR-S17).
+
+    Holds ``last`` until ``value`` deviates from it by at least ``band`` liters,
+    then jumps to ``value`` (which becomes the new reference). Unlike rounding
+    there are no fixed step boundaries, so a level resting on one cannot flicker
+    back and forth. ``band <= 0`` (or no previous value) → passthrough."""
+    if last is None or band <= 0:
+        return float(value)
+    if abs(value - last) >= band:
+        return float(value)
+    return float(last)
+
+
 def calibrate_two_point(
     p1: float, l1: float, p2: float, l2: float
 ) -> tuple[float, float]:

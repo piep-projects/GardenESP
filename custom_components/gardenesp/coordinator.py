@@ -115,6 +115,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         # logged as an ``emergency`` run-result on the box's most recent run (CR-0011).
         self._emergency_seen: dict[str, float] = {}
         self._last_run_line: dict[str, str] = {}  # box_id -> most recently started line
+        # source_id -> last published level (liters); the deadband holds it until the
+        # reading moves by ``level_deadband_l`` (FR-S17). Not persisted — a restart
+        # simply adopts the first fresh reading as the new reference.
+        self._level_hold: dict[str, float] = {}
         # Auto re-resolve on ESPHome entity-registry changes (post-flash self-heal):
         self._unsub_registry: Any = None
         self._resolve_debounce: Any = None  # pending async_call_later cancel handle
@@ -745,6 +749,9 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
 
     def _post_config_change(self) -> None:
         """Re-arm scheduler + state tracking after an in-place edit."""
+        # A calibration/deadband edit must show up at once, not after the band is
+        # next exceeded — drop the held levels (FR-S17).
+        self._level_hold.clear()
         self._recompute_all_box_hashes()
         self._async_reschedule_all()
         if self._unsub_state is not None:
@@ -1297,7 +1304,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         return self._state_float(self._input_entity(source.level_input))
 
     def _read_level(self, source: Source | None) -> float | None:
-        """Current level in liters (cistern: raw→liters; mains: meter)."""
+        """Current level in liters (cistern: raw→liters; mains: meter).
+
+        Cistern readings pass the deadband (FR-S17) so every consumer — level
+        sensor, gates, run consumption — sees the same held value."""
         if source is None:
             return None
         if source.type == SOURCE_CISTERN:
@@ -1308,11 +1318,15 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             liters = calc.liters_from_table(
                 raw, source.calibration_points, source.max_volume_l
             )
-            if liters is not None:
-                return liters
-            return calc.liters_from_pressure(
-                raw, source.multiplier, source.offset, source.max_volume_l
+            if liters is None:
+                liters = calc.liters_from_pressure(
+                    raw, source.multiplier, source.offset, source.max_volume_l
+                )
+            held = calc.deadband(
+                liters, self._level_hold.get(source.id), source.level_deadband_l
             )
+            self._level_hold[source.id] = held
+            return held
         meter = self._state_float(self._input_entity(source.meter_input))
         return None if meter is None else meter * source.pulse_factor
 

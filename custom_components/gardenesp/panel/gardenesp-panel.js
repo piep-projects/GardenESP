@@ -102,7 +102,6 @@ class GardenEspPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._hass = null;
     this._data = null;
-    this._history = []; // irrigation log (for consumption summaries in the overviews)
     this._topology = []; // derived hydraulic strands (Topologie tab, gardenesp/topology)
     this._error = null;
     this._loading = true;
@@ -144,13 +143,11 @@ class GardenEspPanel extends HTMLElement {
   async _load() {
     if (!this._hass) return;
     try {
-      const [data, hist, topo] = await Promise.all([
+      const [data, topo] = await Promise.all([
         this._ws({ type: "gardenesp/config/get" }),
-        this._ws({ type: "gardenesp/history" }),
         this._ws({ type: "gardenesp/topology" }),
       ]);
       this._data = data;
-      this._history = (hist && hist.entries) || [];
       this._topology = (topo && topo.strands) || [];
       this._error = null;
     } catch (err) {
@@ -248,7 +245,7 @@ class GardenEspPanel extends HTMLElement {
         show_on_dashboard: true, manual_default_min: 10, schedule: [] };
     if (kind === "source")
       return { name: "", type: "cistern", level_input: "", multiplier: 1, offset: 0,
-        calibration_points: [], max_volume_l: 0, min_fill_pct: 0, pump_output: "",
+        calibration_points: [], max_volume_l: 0, min_fill_pct: 0, level_deadband_l: 0, pump_output: "",
         tank_settle_min: 0, meter_input: "", pulse_factor: 1 };
     if (kind === "box")
       return { name: "", hw_type: "gardencontrol", label: this._firstFreeBoxLabel(), enabled: true, outputs: [], inputs: [] };
@@ -457,9 +454,8 @@ class GardenEspPanel extends HTMLElement {
     ).join("");
     return `<div class="head"><h1><ha-icon icon="${ICON}"></ha-icon> GardenESP</h1>
       <div class="headbtns">
-        <button class="btn ghost" data-act="back" title="Zurück zum Dashboard">← Dashboard</button>
-        <button class="btn ghost" data-act="refresh" title="Aktualisieren">⟳</button>
-        <a class="btn ghost" href="${DOCS_URL}" target="_blank" rel="noopener" title="Online-Hilfe öffnen">? Hilfe</a>
+        <button class="btn onbrand" data-act="back" title="Zurück zum Dashboard">Dashboard</button>
+        <a class="btn onbrand" href="${DOCS_URL}" target="_blank" rel="noopener" title="Online-Hilfe öffnen">? Hilfe</a>
       </div></div>
       <nav class="tabs">${tabs}${this._fwBanner()}</nav>`;
   }
@@ -698,8 +694,7 @@ class GardenEspPanel extends HTMLElement {
             <div class="sub">${box ? esc(box.name) : "keine Box"} · ${src ? esc(src.name) : "ohne Quelle"}</div>
             <div class="schedchips">${this._scheduleChips(ln)}</div>
             ${this._stamps(ln)}
-            ${this._idLine(ln.id)}
-            ${this._consumptionSummary((e) => e.line_id === ln.id)}</div>
+            ${this._idLine(ln.id)}</div>
             ${this._autoToggle(ln)}
             <button class="btn" data-editline="${esc(ln.id)}">Bearbeiten</button></div>`;
         }).join("")
@@ -752,10 +747,9 @@ class GardenEspPanel extends HTMLElement {
     const body = sources.length
       ? sources.map((s) => `<div class="row"><div class="grow">
           <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Steuergerät deaktiviert</span>` : ""}</div>
-          <div class="sub">${s.type === "cistern" ? `Max ${s.max_volume_l || "?"} L · min ${s.min_fill_pct || 0} %` : `${s.pulse_factor} L/Impuls`}${this._sourceLevel(s)}</div>
+          <div class="sub">${s.type === "cistern" ? `Max ${s.max_volume_l || "?"} L · min ${s.min_fill_pct || 0} %${Number(s.level_deadband_l) > 0 ? ` · Totband ±${s.level_deadband_l} L` : ""}` : `${s.pulse_factor} L/Impuls`}${this._sourceLevel(s)}</div>
           ${this._sourceEntities(s)}
-          ${this._stamps(s)}
-          ${this._consumptionSummary((e) => e.source_id === s.id)}</div>
+          ${this._stamps(s)}</div>
           <button class="btn" data-editsource="${esc(s.id)}">Bearbeiten</button></div>`).join("")
       : `<div class="empty">Noch keine Quellen.</div>`;
     return this._listHeader("Wasserquellen", "source") + `<section class="cardbox">${body}</section>`;
@@ -812,34 +806,6 @@ class GardenEspPanel extends HTMLElement {
   // (own irrigation logic from HA automations, FR-X3b).
   _idLine(id) {
     return `<div class="objid">ID (für Dienst): <code>${esc(id)}</code></div>`;
-  }
-  // Consumption period-sums (liters) from the history — same buckets as the Card
-  // detail view (Heute · Monat · Vormonat · Jahr · Vorjahr); shown under the stamps
-  // in the Quellen/Linien overviews (per source_id / line_id). Empty when no data.
-  _consumptionSummary(filterFn) {
-    const now = new Date();
-    const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
-    const pm = m === 0 ? 11 : m - 1, pmy = m === 0 ? y - 1 : y; // Vormonat
-    let day = 0, month = 0, prevMonth = 0, year = 0, prevYear = 0, any = false;
-    for (const e of this._history) {
-      if (!filterFn(e) || e.liters == null) continue;
-      const t = new Date(e.start);
-      if (isNaN(t)) continue;
-      any = true;
-      const L = Number(e.liters) || 0;
-      if (t.getFullYear() === y) {
-        year += L;
-        if (t.getMonth() === m) { month += L; if (t.getDate() === d) day += L; }
-      } else if (t.getFullYear() === y - 1) {
-        prevYear += L;
-      }
-      if (t.getFullYear() === pmy && t.getMonth() === pm) prevMonth += L;
-    }
-    if (!any) return "";
-    const cell = (label, v) => `<span class="csum"><span class="cl">${esc(label)}</span> ${esc(fmtVol(v))}</span>`;
-    return `<div class="consum"><span class="chead">Verbrauch</span>${
-      cell("Heute", day) + cell("Monat", month) + cell("Vormonat", prevMonth) +
-      cell("Jahr", year) + cell("Vorjahr", prevYear)}</div>`;
   }
   // Resolved HA entity_ids of a source's referenced box in-/outputs (FR-X1): the
   // level/meter sensor and the pump switch — shown read-only in the Quellen overview.
@@ -1332,6 +1298,10 @@ class GardenEspPanel extends HTMLElement {
         this._calEditor(d) +
         field("Max-Volumen (L)", num("max_volume_l", d.max_volume_l)) +
         field("Mindest-Füllstand (%)", num("min_fill_pct", d.min_fill_pct)) +
+        field("Totband (L)", num("level_deadband_l", d.level_deadband_l, true),
+          "0 = aus. Der angezeigte Füllstand bleibt stehen, bis der Messwert um mindestens " +
+          "diesen Betrag davon abweicht — gegen Zappeln im Ruhezustand (z. B. 5 L). " +
+          "Wirkt sofort, kein Reflash nötig.") +
         field("Pumpe", select("pump_output", d.pump_output, [["", "— keine —"], ...this._outputRefs("pump")])) +
         field("Beruhigungszeit (min)", num("tank_settle_min", d.tank_settle_min)) +
         field("Linear-Shortcut: Multiplier (L/Rohwert)", num("multiplier", d.multiplier, true),
@@ -1899,8 +1869,6 @@ class GardenEspPanel extends HTMLElement {
     const q = (s) => root.querySelectorAll(s);
     const on = (s, ev, fn) => q(s).forEach((el) => (el[ev] = fn));
 
-    const ref = root.querySelector('[data-act="refresh"]');
-    if (ref) ref.onclick = () => this._load();
     const back = root.querySelector('[data-act="back"]');
     // Return to the dashboard the card recorded on its way here (sessionStorage:return,
     // set on an explicit card→settings click — most precise); else the last view the
@@ -2209,12 +2177,6 @@ function errText(err) {
   }
   return String(err);
 }
-// Consumption volume: liters, switching to m³ above 1000 L (mirrors the Card).
-function fmtVol(liters) {
-  const v = Number(liters) || 0;
-  if (v >= 1000) return `${(v / 1000).toLocaleString("de-DE", { maximumFractionDigits: 2 })} m³`;
-  return `${Math.round(v)} L`;
-}
 function setPath(obj, path, val) {
   const parts = path.split(".");
   let cur = obj;
@@ -2229,11 +2191,20 @@ function setPath(obj, path, val) {
 const CSS = `
 :host { display: block; }
 .wrap { max-width: 880px; margin: 0 auto; padding: 16px; }
-.head { display: flex; align-items: center; justify-content: space-between; }
+/* Header bar in brand green (= brand/icon.png), deliberately not the theme
+   --primary-color; the scoping to .head keeps modal/print headings unaffected. */
+.head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; background: #43A047; border-radius: 10px; padding: 6px 12px; margin-bottom: 12px; }
 .headbtns { display: inline-flex; align-items: center; gap: 6px; }
 h1 { font-size: 22px; margin: 8px 0 12px; color: var(--primary-text-color);
   display: inline-flex; align-items: center; gap: 8px; }
-h1 ha-icon { --mdc-icon-size: 26px; color: #43A047; } /* brand green (icon.png), not theme --primary-color */
+.head h1 { color: #fff; margin: 4px 0; }
+h1 ha-icon { --mdc-icon-size: 26px; color: #43A047; }
+.head h1 ha-icon { color: #fff; }
+/* Label-style buttons that sit *on* the green bar (outlined, white). */
+.btn.onbrand { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.7);
+  border-radius: 999px; padding: 5px 12px; }
+.btn.onbrand:hover { background: rgba(255,255,255,.16); border-color: #fff; }
 h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); margin: 0 0 8px; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .tab { border: none; background: transparent; padding: 8px 14px; border-radius: 8px; cursor: pointer;
@@ -2358,12 +2329,6 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
 .boxstamp { color: var(--secondary-text-color); font-size: 11px; margin-top: 1px; }
 .objid { color: var(--secondary-text-color); font-size: 11px; margin-top: 1px; }
 .objid code { font-family: var(--code-font-family, monospace); user-select: all; }
-/* consumption period-sums under the stamps (Quellen/Linien overview) */
-.consum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 4px; font-size: 12px; }
-.consum .chead { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--secondary-text-color); }
-.csum { white-space: nowrap; }
-.csum .cl { color: var(--secondary-text-color); }
 /* resolved HA entity_ids of a source (Quellen overview) */
 .srcents { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 3px; font-size: 12px; }
 .srcent .cl { color: var(--secondary-text-color); margin-right: 3px; }
