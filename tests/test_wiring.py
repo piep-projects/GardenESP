@@ -191,12 +191,12 @@ class GardenControlTest(unittest.TestCase):
         self.assertEqual(terms["R1"]["assignment"]["short_id"], "GR1")
         self.assertEqual(terms["R2"]["assignment"]["name"], "Springbrunnen")
 
-    def test_relais_board_order_r2_left_of_r1(self):
-        # Field-verified silkscreen: the relay terminals read COM·COM·R2·R1·24VAC·24VAC
-        # (R2 physically LEFT of R1 — printed label reversed vs pin naming, but the
-        # LED/function are correct). The lens must mirror the real board.
+    def test_relais_board_order_r1_left_of_r2(self):
+        # Board silkscreen: the relay terminals read COM·COM·R1·R2·24VAC·24VAC. The
+        # R1/R2 crossing sits in the MCP pin map (esphome_yaml._GC_RELAY_PIN), not in
+        # the printed label — the lens prints what is on the board.
         labels = [c["label"] for c in self.out["grid"]["top_upper"]]
-        self.assertEqual(labels[6:10], ["COM", "COM", "R2", "R1"])
+        self.assertEqual(labels[6:10], ["COM", "COM", "R1", "R2"])
 
     def test_inputs_on_terminals_by_pin(self):
         terms = self._terminals()
@@ -248,7 +248,9 @@ class GardenControlTest(unittest.TestCase):
         self.assertEqual(by_name["Springbrunnen"]["ret"], "COM")
         self.assertEqual(by_name["Zisterne Pegel"]["ret"], "VCC")   # 4-20 mA IN → VCC supply
         self.assertEqual(by_name["Beet"]["ret"], "GND")             # 0-12 V ADC → GND
-        self.assertEqual(by_name["RainClik"]["ret"], "")            # binary → no drawn return
+        # Binary contacts (Rain-Clik, Taster, S0 meters) are fed from the VCC pad next to
+        # BIN1 and switch it onto BINx — vendor diagrams AnschlussBIN / AnschlussS0.
+        self.assertEqual(by_name["RainClik"]["ret"], "VCC")
 
     def test_active_rails(self):
         terms = self._terminals()
@@ -259,6 +261,9 @@ class GardenControlTest(unittest.TestCase):
         # …and IN1 is used, IN2 is not → only IN1's supply pad is active
         self.assertTrue(self.out["grid"]["top_upper"][1]["active"])
         self.assertFalse(self.out["grid"]["top_upper"][3]["active"])
+        # the BIN supply pad (top_lower[0]) lights up with the RainClik on BIN1
+        self.assertEqual(self.out["grid"]["top_lower"][0]["label"], "VCC")
+        self.assertTrue(self.out["grid"]["top_lower"][0]["active"])
 
     def test_24vac_is_feed_in_not_a_rail(self):
         # 24VAC must never be emphasised as a return rail — wiring a coil there is wrong.
@@ -281,6 +286,7 @@ class GardenControlTest(unittest.TestCase):
         terms = {c["label"]: c for col in out["grid"].values() for c in col if c["label"]}
         self.assertFalse(terms["COM"]["active"])
         self.assertFalse(terms["GND"]["active"])
+        self.assertFalse(out["grid"]["top_lower"][0]["active"])  # no BIN → supply pad neutral
 
 
 if __name__ == "__main__":

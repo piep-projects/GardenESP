@@ -282,9 +282,11 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
         term = _GC_INPUT_TERMINAL.get(gc_input_pin(i.get("pin")))
         if not term:
             continue
-        # return/supply pairing: 4-20 mA loop (IN) needs its adjacent VCC supply pad
-        # (24 V DC), 0-12 V analog (ADC) needs GND; binary inputs (BIN) draw no return.
-        ret = "VCC" if term in ("IN1", "IN2") else ("GND" if term.startswith("ADC") else "")
+        # return/supply pairing: 4-20 mA loop (IN) needs its adjacent VCC supply pad, and
+        # a binary contact (BIN) is fed from the VCC pad left of BIN1 and switches it onto
+        # BINx — vendor diagrams AnschlussBIN (Rain-Clik/Taster) and AnschlussS0 (Wasser-/
+        # Stromzähler) both wire it that way. 0-12 V analog (ADC) returns to GND.
+        ret = "GND" if term.startswith("ADC") else "VCC"
         in_by_term.setdefault(term, {
             "name": (i.get("name") or "").strip() or i.get("id"),
             "role": "sensor",
@@ -306,16 +308,15 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
             _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
             _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
-            # Field-verified board order: R2 sits LEFT of R1. The silkscreen print is
-            # reversed vs the pin naming (R2 = MCP pin 13, R1 = pin 12); LED/function
-            # are correct, only the printed label is swapped. Match the real board so
-            # the lens points at the right screw.
-            _c("R2", "Relais 2 (24 VAC-Ausgang → Koppelrelais)"),
+            # Silkscreen order (board photo): R1 left of R2. The label is what counts —
+            # the crossing lives in the pin map (R1 = MCP pin 13), not in the print.
             _c("R1", "Relais 1 (24 VAC-Ausgang → Koppelrelais)"),
+            _c("R2", "Relais 2 (24 VAC-Ausgang → Koppelrelais)"),
             _c("24VAC", "Versorgung 24 VAC", True), _c("24VAC", "Versorgung 24 VAC", True),
         ],
         "top_lower": [
-            _c("VCC", "Sensor-Versorgung", True), _c("BIN1", "Binär 24 V (Regen/S0/Schalter)"),
+            _c("VCC", "Abfragespannung Binäreingänge (24 V DC)", True),
+            _c("BIN1", "Binär 24 V (Regen/S0/Schalter)"),
             _c("BIN2", "Binär 24 V (Regen/S0/Schalter)"), _c("BIN3", "Binär 24 V (Regen/S0/Schalter)"),
             _c("+24V", "Sensor-Versorgung", True), _c("+12V", "Sensor-Versorgung", True),
             _c("+5V", "Sensor-Versorgung", True), _c("ADC1", "Analog 0–12 V"),
@@ -344,6 +345,9 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     grid["top_upper"][1]["rail"] = grid["top_upper"][3]["rail"] = "insupply"
     grid["top_upper"][1]["active"] = "IN1" in in_by_term
     grid["top_upper"][3]["active"] = "IN2" in in_by_term
+    # BIN supply pad (24 V DC query voltage) — one wire of every binary contact lands here.
+    grid["top_lower"][0]["rail"] = "insupply"
+    grid["top_lower"][0]["active"] = any(t in in_by_term for t in ("BIN1", "BIN2", "BIN3"))
 
     devices = [c["assignment"] for col in grid.values() for c in col if c["assignment"]]
     notes = [
@@ -357,8 +361,9 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
         "nebenstehende VCC (24 V DC). Kein GND (Stromschleife schließt intern).",
         "Analog-/DC-Sensoren an ADC1–4 (0–12 V): Sensor-Minus/GND an die GND-Klemme, "
         "Versorgung von +5V/+12V/+24V.",
-        "BIN1–3 = Binär 24 V (Regen/S0/Schalter). Versorgung: 24-VAC-Trafo (≥ 3 A), externe "
-        "3-A-Sicherung Pflicht.",
+        "BIN1–3 = Binär (Regen/S0/Schalter): potentialfreier Kontakt zwischen dem VCC-Pad "
+        "links neben BIN1 (Abfragespannung 24 V DC, kurzschlussfest) und BINx — gilt für "
+        "Rain-Clik/Taster ebenso wie für S0-Zähler (Wasser-/Stromzähler).",
     ]
     return {
         "box": box_view, "supported": True, "layout": "terminals",
