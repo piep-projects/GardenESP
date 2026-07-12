@@ -27,6 +27,24 @@ reduzieren (das Panel warnt).
 
 [Kalibrierung](quellen.md) prüfen — Stützpunkte und aktuellen Rohwert.
 
+## Der Zisternen-Füllstand zappelt im Ruhezustand
+
+Normal — ein Drucksensor rauscht. **Glättung** am Eingang (Tab Hardware) und **Totband** an
+der Quelle machen die Anzeige ruhig; beides ist unter [Wasserquellen](quellen.md#ruhiger-füllstand-glättung-und-totband)
+erklärt.
+
+## GardenControl: die Pumpe schaltet die falsche Relais-Klemme
+
+Auf dem GardenControl-Board sind die beiden Relais-Ausgänge **gekreuzt**: die Schraube mit dem
+Aufdruck **`R1` wird intern von einem anderen Pin getrieben** als der Name der Hersteller-Firmware
+vermuten lässt (vom Hersteller bestätigt — **der Aufdruck gilt**). GardenESP berücksichtigt das
+**ab Version 0.13.73**.
+
+**Nach dem Update auf 0.13.73 musst du das Steuergerät neu flashen** — bis dahin schaltet es
+weiterhin die *andere* Schraube. Prüfe nach dem Flash einmal, welche Klemme tatsächlich anzieht:
+schaltet die falsche, steck die Ader auf die andere Relais-Klemme um **oder** stelle den Ausgang
+in den Einstellungen von `R1` auf `R2` (bzw. umgekehrt).
+
 ## OTA-Flash schlägt fehl: „Error resolving IP address … Is it connected to WiFi?"
 
 Diese Meldung erscheint, wenn sich der **ESPHome-Gerätename** (der mDNS-Hostname

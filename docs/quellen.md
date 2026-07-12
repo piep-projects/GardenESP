@@ -35,6 +35,37 @@ Im Quellen-Editor:
     Maximalmenge — bei selbst gesetztem Überlauf/Ablauf ist das oft **weniger** als das
     Nennvolumen des Tanks.
 
+## Ruhiger Füllstand: Glättung und Totband
+
+Ein Drucksensor rauscht — der angezeigte Füllstand zappelt dann auch im Ruhezustand um
+ein paar Liter. Dagegen gibt es **zwei unabhängige Stellschrauben**, die man kombinieren
+kann. Sie greifen an verschiedenen Stellen an:
+
+| | **Glättung** | **Totband** |
+|---|---|---|
+| Wo eingestellt | am **Eingang** des Steuergeräts (Tab Hardware) | an der **Wasserquelle** |
+| Einheit | Sekunden (aus / 30 / 60 / 90 s) | Liter (0 = aus) |
+| Wogegen | **Messrauschen** | **Unruhe der Anzeige** |
+| Wie | Der Sensor mittelt auf dem Gerät gleitend über das Zeitfenster. | Der angezeigte Wert bleibt stehen, bis der Messwert um mindestens den Betrag davon abweicht. |
+| Reflash nötig | **ja** (Firmware-Änderung) | **nein** |
+
+**Empfehlung:** erst die Glättung auf 60 s stellen (das nimmt das schnelle Zittern), und
+wenn die Anzeige dann noch um wenige Liter wandert, ein **Totband** von etwa 5 L setzen.
+Das Totband wirkt einheitlich — auf die Füllstands-Anzeige, auf die Mindestfüllstand-Sperre
+und auf die Verbrauchsmessung.
+
+!!! tip "Warum kein Runden?"
+    Runden hat **feste** Stufengrenzen. Liegt der Pegel zufällig genau auf einer, kippt die
+    Anzeige schon bei minimalem Rauschen um eine **volle Stufe** hin und her. Das Totband hat
+    keine festen Grenzen: es merkt sich den zuletzt gezeigten Wert, und die Grenze wandert mit.
+
+!!! info "Wenn beides nichts mehr bringt"
+    Bleibt nach der Glättung eine langsame Wanderung von wenigen Litern über **Stunden**, ist
+    das meist **kein Rauschen mehr**, sondern echt: Sonne und Temperatur wirken auf Tank und
+    Sensor. Dagegen hilft kein Filter — solche Abweichungen liegen typisch **innerhalb der
+    Genauigkeit** des Sensors (oft ~0,5 % vom Messbereich). Ein Totband macht die Anzeige dann
+    trotzdem ruhig.
+
 ## Festwasser
 
 Verbrauch wird über den **Literzähler** (Pulszähler) gemessen. Die Quelle zeigt im
