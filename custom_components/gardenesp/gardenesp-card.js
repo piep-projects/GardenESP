@@ -75,6 +75,7 @@ class GardenEspCard extends HTMLElement {
     this._loading = true;
     this._timer = null;
     this._tick = null;
+    this._onVisible = () => { if (!document.hidden) this._load(); };
     this._built = false;
     this._inline = null; // {kind:"line", id, min, force} while a timer is open
     this._details = null; // {kind:"line"|"source"|"sensor", id} while overlay is open
@@ -107,13 +108,21 @@ class GardenEspCard extends HTMLElement {
     // localStorage so it survives across page loads; updated on each view
     // activation (connect) → last view the card was shown on wins.
     try { localStorage.setItem("gardenesp:dashboard", location.pathname + location.search); } catch (e) { /* private mode */ }
+    // Re-showing the card (view switch, back from Einstellungen) must not leave the
+    // previous — possibly stale — data on screen until the poll fires: settings
+    // saved in the panel would look like they hadn't taken effect.
+    this._load();
     if (!this._timer) this._timer = setInterval(() => this._load(), POLL_MS);
     if (!this._tick) this._tick = setInterval(() => this._updateCountdown(), 1000);
+    // A backgrounded (iOS) app freezes the poll and drops the WS — reload as soon
+    // as it comes back to the foreground instead of waiting out the interval.
+    document.addEventListener("visibilitychange", this._onVisible);
   }
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
     if (this._tick) clearInterval(this._tick);
     this._timer = this._tick = null;
+    document.removeEventListener("visibilitychange", this._onVisible);
   }
 
   async _ws(msg) {
