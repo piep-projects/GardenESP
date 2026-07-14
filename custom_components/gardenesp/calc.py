@@ -49,19 +49,9 @@ def calibrate_two_point(
     return multiplier, offset
 
 
-def liters_from_table(
-    raw: float,
-    points: list[Any],
-    max_volume_l: int | float | None = None,
-) -> float | None:
-    """Piecewise-linear level from a calibration table (FR-S5a).
-
-    ``points`` = list of ``{"raw":.., "liters":..}`` mappings (or ``(raw, liters)``
-    tuples). Interpolates linearly between the points sorted by ``raw``; **below the
-    first / above the last point the endpoint liters are held** (no extrapolation),
-    then clamped to ``[0, max_volume_l]``. A table with **2** points is just the
-    linear case; **N** points capture a non-linear tank. Returns ``None`` when fewer
-    than 2 valid points exist (caller falls back to ``multiplier``/``offset``)."""
+def _calibration_points(points: list[Any]) -> list[tuple[float, float]]:
+    """Parse a calibration table into sorted ``(raw, liters)`` pairs, dropping
+    incomplete/unparsable rows (the editor keeps half-filled ones around)."""
     pts: list[tuple[float, float]] = []
     for p in points:
         try:
@@ -71,9 +61,46 @@ def liters_from_table(
                 pts.append((float(p[0]), float(p[1])))
         except (KeyError, TypeError, ValueError, IndexError):
             continue
+    pts.sort(key=lambda q: q[0])
+    return pts
+
+
+def table_range(raw: float, points: list[Any]) -> str | None:
+    """Is ``raw`` outside the calibration table's support points (FR-S5c)?
+
+    ``"below"`` / ``"above"`` when the reading sits under the first resp. over the
+    last point, else ``None``. Outside the table :func:`liters_from_table` holds the
+    endpoint liters, so the level silently freezes — the caller warns instead of
+    letting run consumption drop to 0 and the min-fill gate go blind. ``None`` for a
+    table with fewer than 2 points (the linear shortcut extrapolates and never
+    clamps this way)."""
+    pts = _calibration_points(points)
     if len(pts) < 2:
         return None
-    pts.sort(key=lambda q: q[0])
+    if raw < pts[0][0]:
+        return "below"
+    if raw > pts[-1][0]:
+        return "above"
+    return None
+
+
+def liters_from_table(
+    raw: float,
+    points: list[Any],
+    max_volume_l: int | float | None = None,
+) -> float | None:
+    """Piecewise-linear level from a calibration table (FR-S5a).
+
+    ``points`` = list of ``{"raw":.., "liters":..}`` mappings (or ``(raw, liters)``
+    tuples). Interpolates linearly between the points sorted by ``raw``; **below the
+    first / above the last point the endpoint liters are held** (no extrapolation,
+    see :func:`table_range`), then clamped to ``[0, max_volume_l]``. A table with
+    **2** points is just the linear case; **N** points capture a non-linear tank.
+    Returns ``None`` when fewer than 2 valid points exist (caller falls back to
+    ``multiplier``/``offset``)."""
+    pts = _calibration_points(points)
+    if len(pts) < 2:
+        return None
     if raw <= pts[0][0]:
         liters = pts[0][1]
     elif raw >= pts[-1][0]:

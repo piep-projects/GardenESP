@@ -119,6 +119,9 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         # reading moves by ``level_deadband_l`` (FR-S17). Not persisted — a restart
         # simply adopts the first fresh reading as the new reference.
         self._level_hold: dict[str, float] = {}
+        # source_id -> last logged calibration-range warning ("below"/"above", FR-S5c);
+        # keeps the log to one line per source and direction instead of every refresh.
+        self._level_range_logged: dict[str, str] = {}
         # Auto re-resolve on ESPHome entity-registry changes (post-flash self-heal):
         self._unsub_registry: Any = None
         self._resolve_debounce: Any = None  # pending async_call_later cancel handle
@@ -752,6 +755,8 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         # A calibration/deadband edit must show up at once, not after the band is
         # next exceeded — drop the held levels (FR-S17).
         self._level_hold.clear()
+        # An edited table may fix (or newly cause) an out-of-range reading → warn again.
+        self._level_range_logged.clear()
         self._recompute_all_box_hashes()
         self._async_reschedule_all()
         if self._unsub_state is not None:
@@ -1303,6 +1308,32 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             return None
         return self._state_float(self._input_entity(source.level_input))
 
+    def _level_range(self, source: Source, raw: float | None) -> str | None:
+        """Publish (and log once) a raw reading outside the calibration table (FR-S5c).
+
+        Outside the table the level freezes on the endpoint value: run consumption
+        becomes ``start - end`` = 0 and the ``min_fill_pct`` gate reads a level that
+        cannot fall any further. That is silent today — hence the warning."""
+        if raw is None:
+            return None
+        side = calc.table_range(raw, source.calibration_points)
+        if side is None:
+            self._level_range_logged.pop(source.id, None)
+            return None
+        if self._level_range_logged.get(source.id) != side:
+            self._level_range_logged[source.id] = side
+            _LOGGER.warning(
+                "Source %s (%s): raw reading %s is %s the calibration table — the level "
+                "stays pinned at the endpoint, run consumption is logged as 0 L and the "
+                "minimum-fill gate cannot trigger. Add a support point %s it.",
+                source.id,
+                source.name,
+                raw,
+                "below" if side == "below" else "above",
+                "below" if side == "below" else "above",
+            )
+        return side
+
     def _read_level(self, source: Source | None) -> float | None:
         """Current level in liters (cistern: raw→liters; mains: meter).
 
@@ -1427,13 +1458,15 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             if source.type != SOURCE_CISTERN:
                 continue
             level = self._read_level(source)
+            raw = self._read_raw(source)
             self._set_value(source.id, "level", level)
-            self._set_value(source.id, "level_raw", self._read_raw(source))
+            self._set_value(source.id, "level_raw", raw)
             self._set_value(
                 source.id,
                 "level_pct",
                 calc.percent(level, source.max_volume_l) if level is not None else None,
             )
+            self._set_value(source.id, "level_range", self._level_range(source, raw))
         # Blocking sensors are rain/soil box inputs; publish keyed by their ref.
         for box in self.config.boxes.values():
             for inp in box.inputs:

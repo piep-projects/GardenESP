@@ -746,7 +746,7 @@ class GardenEspPanel extends HTMLElement {
     const sources = Object.values(cfg.sources || {});
     const body = sources.length
       ? sources.map((s) => `<div class="row"><div class="grow">
-          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Steuergerät deaktiviert</span>` : ""}</div>
+          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Steuergerät deaktiviert</span>` : ""}${this._rangeChip(s)}</div>
           <div class="sub">${s.type === "cistern" ? `Max ${s.max_volume_l || "?"} L · min ${s.min_fill_pct || 0} %${Number(s.level_deadband_l) > 0 ? ` · Totband ±${s.level_deadband_l} L` : ""}` : `${s.pulse_factor} L/Impuls`}${this._sourceLevel(s)}</div>
           ${this._sourceEntities(s)}
           ${this._stamps(s)}</div>
@@ -762,6 +762,28 @@ class GardenEspPanel extends HTMLElement {
       .filter((r) => r && r.includes("#"))
       .some((r) => { const b = boxes[r.split("#")[0]]; return b && b.enabled === false; });
   }
+  // Raw reading outside the calibration table (FR-S5c) — published by the
+  // coordinator as `level_range` ("below"/"above"). Outside the table the level
+  // freezes on the endpoint, so consumption logs 0 L and the min-fill gate goes
+  // blind; both directions are worth a warning.
+  _rangeWarn(s) {
+    if (s.type !== "cistern" || this._sourceDisabled(s)) return null;
+    const side = this._val(s.id, "level_range");
+    if (side !== "below" && side !== "above") return null;
+    const below = side === "below";
+    return {
+      side,
+      chip: below ? "⚠ Rohwert unter der Kalibrierung" : "⚠ Rohwert über der Kalibrierung",
+      text: `Der Messwert liegt ${below ? "unter dem untersten" : "über dem obersten"} Stützpunkt. ` +
+        `Der Füllstand bleibt deshalb auf dessen Literwert stehen: Läufe buchen 0 L Verbrauch und ` +
+        `der Mindest-Füllstand kann nicht mehr greifen. Stützpunkt ${below ? "darunter" : "darüber"} ergänzen.`,
+    };
+  }
+  _rangeChip(s) {
+    const w = this._rangeWarn(s);
+    return w ? `<span class="chip warn" title="${esc(w.text)}">${esc(w.chip)}</span>` : "";
+  }
+
   // Resolve a "{box_id}#{input_id}" ref to its Input object (for live meter reads).
   _inputByRef(ref) {
     if (!ref || !ref.includes("#")) return null;
@@ -1330,7 +1352,9 @@ class GardenEspPanel extends HTMLElement {
     const active = pts.filter((p) => p.raw !== "" && p.raw != null && p.liters !== "" && p.liters != null).length >= 2;
     const inp = this._inputByRef(d.level_input);
     const ent = inp && inp.entity ? inp.entity : "Pegel-Sensor";
+    const warn = this._rangeWarn(d);
     return `<div class="field"><label>Kalibrierung — Stützpunkte (Rohwert → Liter)</label>
+      ${warn ? `<div class="formwarn">${esc(warn.chip)} — ${esc(warn.text)}</div>` : ""}
       <div class="hint">Der <b>Rohwert</b> ist der ungerechnete Live-Wert des Pegel-Sensors
         (<code>${esc(ent)}</code>, bei generierter Firmware der rohe elektrische Messwert — ADC-Spannung
         bzw. 4-20-mA-Strom, kein Druck/cm).

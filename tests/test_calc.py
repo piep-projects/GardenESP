@@ -85,6 +85,39 @@ class TestLevelTable(unittest.TestCase):
         self.assertEqual(calc.liters_from_table(10, pts), 100.0)  # clamps to first endpoint
 
 
+class TestTableRange(unittest.TestCase):
+    """FR-S5c — a reading outside the table freezes the level on an endpoint, which
+    silently zeroes run consumption and blinds the min-fill gate. Both directions."""
+
+    PTS = [{"raw": 0.956, "liters": 305}, {"raw": 1.238, "liters": 390}]
+
+    def test_inside(self):
+        self.assertIsNone(calc.table_range(1.0, self.PTS))
+
+    def test_on_the_endpoints_is_inside(self):
+        self.assertIsNone(calc.table_range(0.956, self.PTS))
+        self.assertIsNone(calc.table_range(1.238, self.PTS))
+
+    def test_below_first_point(self):  # the live Regentank-650 case (raw fell to 0.61 V)
+        self.assertEqual(calc.table_range(0.61, self.PTS), "below")
+
+    def test_above_last_point(self):
+        self.assertEqual(calc.table_range(1.5, self.PTS), "above")
+
+    def test_unsorted_table(self):
+        pts = [{"raw": 1.238, "liters": 390}, {"raw": 0.956, "liters": 305}]
+        self.assertEqual(calc.table_range(0.5, pts), "below")
+        self.assertEqual(calc.table_range(2.0, pts), "above")
+
+    def test_no_table_no_warning(self):  # linear shortcut extrapolates — never clamps
+        self.assertIsNone(calc.table_range(0.1, []))
+        self.assertIsNone(calc.table_range(0.1, [{"raw": 1, "liters": 10}]))
+
+    def test_malformed_points_ignored(self):
+        pts = [{"raw": "", "liters": ""}, {"raw": 0.956, "liters": 305}, {"raw": 1.238, "liters": 390}]
+        self.assertEqual(calc.table_range(0.5, pts), "below")
+
+
 class TestPercent(unittest.TestCase):
     def test_basic(self):
         self.assertEqual(calc.percent(820, 1000), 82.0)

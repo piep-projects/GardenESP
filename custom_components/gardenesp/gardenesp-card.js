@@ -448,7 +448,11 @@ class GardenEspCard extends HTMLElement {
     // Low water level is a property of the source — surfaced here (next to the
     // Zisterne name) rather than as a per-line „Gesperrt" badge.
     const badge = low ? ` <span class="badge warn">⚠ Wasserstand niedrig</span>` : "";
-    const line1 = `<span class="nm">${esc(s.name || id)}</span>${badge}`;
+    // Reading outside the calibration table: the level is frozen on an endpoint, so
+    // „Wasserstand niedrig" can no longer fire and consumption books 0 L (FR-S5c).
+    const rw = this._rangeWarn(cfg, s);
+    const rbadge = rw ? ` <span class="badge warn" title="${esc(rw.text)}">${esc(rw.chip)}</span>` : "";
+    const line1 = `<span class="nm">${esc(s.name || id)}</span>${badge}${rbadge}`;
     return this._row(icon, `source:${esc(id)}`, line1, "", right, "");
   }
 
@@ -548,25 +552,44 @@ class GardenEspCard extends HTMLElement {
     ]);
   }
 
+  // Raw reading below the first / above the last calibration point (FR-S5c). The
+  // level then sticks to that endpoint — runs log 0 L and the min-fill gate is blind.
+  _rangeWarn(cfg, s) {
+    if (s.type !== "cistern" || this._isSourceDisabled(cfg, s)) return null;
+    const side = this._val(s.id, "level_range");
+    if (side !== "below" && side !== "above") return null;
+    const below = side === "below";
+    return {
+      side,
+      chip: below ? "⚠ Rohwert unter der Kalibrierung" : "⚠ Rohwert über der Kalibrierung",
+      text: `Der Messwert liegt ${below ? "unter dem untersten" : "über dem obersten"} Stützpunkt der ` +
+        `Kalibrierung. Der angezeigte Füllstand bleibt auf dessen Literwert stehen, Läufe buchen 0 L ` +
+        `Verbrauch und der Mindest-Füllstand greift nicht mehr. In den Einstellungen einen Stützpunkt ` +
+        `${below ? "darunter" : "darüber"} ergänzen.`,
+    };
+  }
+
   _sourceDetails(cfg, s) {
     if (s.type === "cistern") {
       const pump = this._output(cfg, s.pump_output);
       const level = this._val(s.id, "level");
       const pct = this._val(s.id, "level_pct");
+      const rw = this._rangeWarn(cfg, s);
       // Open HA's native more-info dialog (with its history graph) on the level
       // sensor — no need to add the entity to the dashboard separately.
       const ent = this._entityId(s.id, "level");
       const histBtn = ent
         ? `<button class="btn ghost histbtn" data-moreinfo="${esc(ent)}"><ha-icon icon="mdi:chart-line"></ha-icon> Füllstand-Verlauf</button>`
         : "";
-      return this._kv([
-        ["Typ", SOURCE_TYPE[s.type]],
-        ["Füllstand", `${level != null ? Math.round(level) + " L" : "—"}${pct != null ? ` (${pct} %)` : ""}`],
-        ["Max-Volumen", `${s.max_volume_l || "—"} L`],
-        ["Mindest-Füllstand", `${s.min_fill_pct || 0} %`],
-        ["Pumpe", pump ? esc(pump.name) : "—"],
-        ["Beruhigungszeit", `${s.tank_settle_min || 0} min`],
-      ]) + histBtn;
+      return (rw ? `<div class="faultbox">${esc(rw.chip)} — ${esc(rw.text)}</div>` : "")
+        + this._kv([
+          ["Typ", SOURCE_TYPE[s.type]],
+          ["Füllstand", `${level != null ? Math.round(level) + " L" : "—"}${pct != null ? ` (${pct} %)` : ""}`],
+          ["Max-Volumen", `${s.max_volume_l || "—"} L`],
+          ["Mindest-Füllstand", `${s.min_fill_pct || 0} %`],
+          ["Pumpe", pump ? esc(pump.name) : "—"],
+          ["Beruhigungszeit", `${s.tank_settle_min || 0} min`],
+        ]) + histBtn;
     }
     return this._kv([
       ["Typ", SOURCE_TYPE[s.type]],
@@ -982,6 +1005,8 @@ table.hist tr.fault td { color: var(--warning-color, #ff9800); }
 .empty.err { color: var(--error-color, #f44336); }
 .fwbanner { display: block; margin: 0 0 8px; padding: 7px 10px; border-radius: 8px; font-size: 13px;
   text-decoration: none; background: rgba(255, 152, 0, .16); color: var(--warning-color, #e65100); }
+.faultbox { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+  background: rgba(255, 152, 0, .16); color: var(--warning-color, #e65100); }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex;
   align-items: center; justify-content: center; z-index: 9; }
 .modal { background: var(--card-background-color, #fff); color: var(--primary-text-color);
