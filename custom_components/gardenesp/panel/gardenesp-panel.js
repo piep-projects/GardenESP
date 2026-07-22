@@ -1030,6 +1030,7 @@ class GardenEspPanel extends HTMLElement {
     const sig = this._val(b.id, "wifi_signal");
     const rt = this._val(b.id, "restarts_today");
     const ry = this._val(b.id, "restarts_yesterday");
+    const reset = this._val(b.id, "reset_reason");
     const parts = [];
     if (sig != null)
       parts.push(
@@ -1038,6 +1039,14 @@ class GardenEspPanel extends HTMLElement {
     if (rt != null || ry != null)
       parts.push(
         `<ha-icon class="diagicon" icon="mdi:restart" title="Neustarts heute / gestern"></ha-icon>heute ${rt ?? "–"} · gestern ${ry ?? "–"}`
+      );
+    // Last reset reason (roadmap #20) — neutral live text; the dashboard card only
+    // flags fault causes (brownout/watchdog/panic), here we always show it. The
+    // "zuletzt:" label disambiguates it from the per-day restart counts on the same
+    // line — it is the cause of the *latest* boot, not a third day bucket.
+    if (reset)
+      parts.push(
+        `<ha-icon class="diagicon" icon="mdi:restart-alert" title="Letzter Reset-Grund"></ha-icon>zuletzt: ${esc(reset)}`
       );
     return parts.length ? `<div class="zonemeta diagrow">${parts.join(" · ")}</div>` : "";
   }

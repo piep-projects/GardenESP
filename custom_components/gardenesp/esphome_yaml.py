@@ -135,10 +135,28 @@ _ASCII_MAP = {
 
 
 def ascii_fold(name: str) -> str:
-    """Transliterate German umlauts/ß to ASCII-7; leave the rest untouched."""
+    """Transliterate German umlauts/ß to ASCII-7; leave the rest untouched.
+
+    Also folds the unicode slash variants back to a plain ``/`` so the coordinator's
+    name-match compares config names and registry names in the same form (see the
+    ``_ASCII_MAP`` note). This is the *matching* form — for the emitted ``name:``
+    use :func:`esphome_name`, which goes the other way."""
     for src, dst in _ASCII_MAP.items():
         name = name.replace(src, dst)
     return name
+
+
+def esphome_name(name: str) -> str:
+    """The entity ``name:`` to emit into the YAML: umlauts ASCII-folded and every
+    ``/`` written as the FRACTION SLASH (U+2044).
+
+    ESPHome rewrites a plain ``/`` in a friendly name to U+2044 anyway (a URL path
+    separator) — and warns that a plain ``/`` **becomes a hard error in ESPHome
+    2026.7.0**. Emitting U+2044 ourselves yields a byte-identical flashed result
+    (HA stores ``…1⁄4`` either way) but silences the deprecation and is
+    forward-compatible. The resolver still matches: :func:`ascii_fold` folds the
+    registry's U+2044 back to ``/``, as it does for the config name."""
+    return ascii_fold(name).replace("/", "⁄")
 
 
 def sanitize(name: str) -> str:
@@ -298,7 +316,7 @@ def _gpio_switch(
     lines = [
         "  - platform: gpio",
         f"    id: {sw_id}",
-        f'    name: "{ascii_fold(output.get("name") or sw_id)}"',
+        f'    name: "{esphome_name(output.get("name") or sw_id)}"',
         f"    icon: {icon}",
         "    pin:",
     ]
@@ -433,6 +451,15 @@ DIAG_WIFI_NAME = "WLAN-Signal"
 DIAG_BOOT_NAME = "Neustarts gesamt"
 DIAG_RESTART_NAME = "Neustart"
 DIAG_EMERGENCY_NAME = "Notabschaltungen gesamt"
+# Reboot-cause + resource diagnostics via the ESPHome `debug` component (roadmap #20):
+# the reset reason (Brownout / watchdog / software panic / power-on) distinguishes a
+# supply/power reboot from a firmware crash or memory exhaustion — invisible from
+# outside (a gap + boot-counter +1 look identical). Free heap + largest free block
+# reveal a memory leak (slow decline before a crash); loop time flags a hang.
+DIAG_RESET_REASON_NAME = "Reset-Grund"
+DIAG_HEAP_FREE_NAME = "Freier Heap"
+DIAG_HEAP_BLOCK_NAME = "Groesster freier Heap-Block"
+DIAG_LOOP_TIME_NAME = "Loop-Zeit"
 # GardenControl-only board self-diagnostics (roadmap #1): supply-voltage error inputs
 # and 4-20 mA loop-error detection, both driving the on-board Error-LED (GPIO2).
 DIAG_ERR_5V_NAME = "Versorgungsfehler 5V"
@@ -486,10 +513,12 @@ def _diag_globals() -> list[str]:
 
 
 def _diag_sensor_entries() -> list[str]:
-    """``sensor:`` list-items for WLAN signal + cumulative restart count (FR-S13),
-    appended into the box's existing ``sensor:`` block. HA exposes both as native
-    ESPHome diagnostic entities; the coordinator derives restarts today/yesterday
-    from the boot-count history (like ``consumption_today``)."""
+    """``sensor:`` list-items for WLAN signal + cumulative restart count (FR-S13)
+    plus the ``debug`` resource sensors (free heap / largest free block / loop time,
+    roadmap #20), appended into the box's existing ``sensor:`` block. HA exposes them
+    as native ESPHome diagnostic entities; the coordinator derives restarts
+    today/yesterday from the boot-count history (like ``consumption_today``). The
+    ``debug`` sensors require the top-level ``debug:`` hub (:func:`_diag_debug_component`)."""
     return [
         "  - platform: wifi_signal",
         f'    name: "{DIAG_WIFI_NAME}"',
@@ -507,6 +536,47 @@ def _diag_sensor_entries() -> list[str]:
         "    accuracy_decimals: 0",
         "    state_class: total_increasing",
         "    update_interval: 60s",
+        # Resource diagnostics (roadmap #20): a slow free-heap decline / shrinking
+        # largest block is the signature of a memory leak; rising loop time = a hang.
+        "  - platform: debug",
+        "    free:",
+        f'      name: "{DIAG_HEAP_FREE_NAME}"',
+        "      entity_category: diagnostic",
+        "    block:",
+        f'      name: "{DIAG_HEAP_BLOCK_NAME}"',
+        "      entity_category: diagnostic",
+        "    loop_time:",
+        f'      name: "{DIAG_LOOP_TIME_NAME}"',
+        "      entity_category: diagnostic",
+    ]
+
+
+def _diag_debug_component() -> list[str]:
+    """Top-level ``debug:`` hub (roadmap #20) that backs the ``platform: debug``
+    sensors/text-sensors. Shared by both templates. ``update_interval`` matches the
+    other diagnostics (60 s) so heap/loop values refresh without log spam."""
+    return [
+        "# ─── Diagnostics: reboot cause + heap/loop (roadmap #20) ────────────────",
+        "debug:",
+        "  update_interval: 60s",
+        "",
+    ]
+
+
+def _diag_text_sensors() -> list[str]:
+    """Top-level ``text_sensor:`` block exposing the ESP32 **reset reason**
+    (roadmap #20) — the decisive discriminator between a supply/brownout reboot, a
+    watchdog/software reset and a panic. Read from the cached reason after boot and
+    published over the network, so it survives in HA/VM (unlike the ROM ``rst:``
+    line, which only ever reaches UART0). Shared by both templates."""
+    return [
+        "",
+        "# ─── Diagnostics: reset reason (roadmap #20) ────────────────────────────",
+        "text_sensor:",
+        "  - platform: debug",
+        "    reset_reason:",
+        f'      name: "{DIAG_RESET_REASON_NAME}"',
+        "      entity_category: diagnostic",
     ]
 
 
@@ -619,7 +689,7 @@ def _sensors(box: dict[str, Any], hw: str) -> list[str]:
     for inp in inputs:
         kind = inp.get("kind")
         sid = _sensor_id(inp)
-        name = ascii_fold(inp.get("name") or sid)
+        name = esphome_name(inp.get("name") or sid)
         if kind == INPUT_PRESSURE:
             lines, pin = _pressure_sensor(inp, sid, name, hw, idx)
             sensor += lines
@@ -821,7 +891,7 @@ def _gc_output_block(
     """One GardenControl output (valve/relais) on mcp23017_bot + its PCF8575 LED.
     Returns (switch_lines, script_lines) — script for the Emergency Shutdown (FR-E1).
     ``co`` adds the ConnectedDevice/Shared-Pump hooks (FR-E2)."""
-    name = ascii_fold((o or {}).get("name") or default_name)
+    name = esphome_name((o or {}).get("name") or default_name)
     sid = _switch_id(o) if o else sanitize(default_name)
     minutes = int((o or {}).get("emergency_shutdown_min") or 0)
     on_on = [f"      - switch.turn_on: {led_id}"]
@@ -947,6 +1017,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
         "",
         *_diag_globals(),  # boot counter for restart diagnostics (FR-S13)
         *_diag_button(),  # remote restart button (CR-0008)
+        *_diag_debug_component(),  # reboot cause + heap/loop diagnostics (roadmap #20)
         "# ─── I²C buses & expanders ──────────────────────────────────────────────",
         "i2c: { id: bus_a, sda: GPIO21, scl: GPIO22, scan: true }",
         "mcp23017:",
@@ -1003,7 +1074,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
         L += ["# ─── Binary inputs (rain / switch) ──────────────────────────────────────"]
         for pin in binary_pins:
             ip = inputs.get(pin) or {}
-            nm = ascii_fold(ip.get("name") or bin_label[pin])
+            nm = esphome_name(ip.get("name") or bin_label[pin])
             # Rain reads on=wet via a forced pin inversion (FP-0001); a generic
             # button (FR-S14) honours its own `inverted` flag (default false).
             inv = "true" if ip.get("inverted") else "false" if ip.get("kind") == INPUT_BUTTON else "true"
@@ -1019,7 +1090,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
     adc_label = {"GPIO32": "ADC1", "GPIO33": "ADC2", "GPIO34": "ADC3", "GPIO35": "ADC4"}
     for pin in _GC_ADC_PINS:
         inp = inputs.get(pin) or {}
-        nm = ascii_fold(inp.get("name") or adc_label[pin])
+        nm = esphome_name(inp.get("name") or adc_label[pin])
         L += [
             "  - platform: adc",
             f"    pin: {pin}",
@@ -1038,7 +1109,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
     # exactly the gain: 2.048 full scale).
     for term in _GC_ADS_CHANNELS:
         inp = inputs.get(term) or {}
-        nm = ascii_fold(inp.get("name") or term)
+        nm = esphome_name(inp.get("name") or term)
         L += [
             "  - platform: ads1115",
             f"    multiplexer: {_GC_ADS_MUX[term]}_GND",
@@ -1057,7 +1128,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             L += ["    filters: [ { multiply: 10 } ]"]
     # S0 / pulse counters (on whichever binary inputs an S0 meter is assigned to).
     for pin in pulse_pins:
-        nm = ascii_fold((inputs.get(pin) or {}).get("name") or "S0 Zähler")
+        nm = esphome_name((inputs.get(pin) or {}).get("name") or "S0 Zähler")
         L += [
             "  - platform: pulse_counter",
             f"    pin: {pin}",
@@ -1070,8 +1141,9 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             '    total: { name: "' + nm + ' total" }',
         ]
     L += _gc_loop_error_adc_sensors()  # raw A2/A3 loop-error voltages (roadmap #1)
-    L += _diag_sensor_entries()  # WLAN + boot counter (FR-S13)
+    L += _diag_sensor_entries()  # WLAN + boot counter + debug heap/loop (FR-S13 / #20)
     L += _gc_error_led_interval()  # drive Error-LED from supply/loop faults (roadmap #1)
+    L += _diag_text_sensors()  # reset reason (roadmap #20)
     return "\n".join(L).rstrip() + "\n"
 
 
@@ -1094,9 +1166,11 @@ def _base_yaml(box: dict[str, Any], base: str | None = None) -> str:
     lines = _header(box)
     lines += _diag_globals()  # boot counter for restart diagnostics (FR-S13)
     lines += _diag_button()  # remote restart button (CR-0008)
+    lines += _diag_debug_component()  # reboot cause + heap/loop diagnostics (roadmap #20)
     lines += _switches(box, hw)
     lines += _scripts(box)
-    lines += _sensors(box, hw)  # input sensors + WLAN/boot-count diagnostics
+    lines += _sensors(box, hw)  # input sensors + WLAN/boot-count + debug diagnostics
+    lines += _diag_text_sensors()  # reset reason (roadmap #20)
     return "\n".join(lines).rstrip() + "\n"
 
 

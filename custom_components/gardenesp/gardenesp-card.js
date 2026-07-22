@@ -30,6 +30,11 @@ const STATUS = {
 const RESTING_STATES = new Set(["idle", "automatic_off"]);
 // Firmware-drift status per box (#9) — keys match coordinator drift.fw_status().
 const FW_ATTENTION = ["drift", "drift_offline", "drift_export"];
+// Reset reasons that signal a fault (roadmap #20): a brownout/watchdog/panic reboot
+// is the kind that interrupts a run — surfaced on the dashboard. Benign reasons
+// (power-on, restart button, OTA) stay hidden. The substring match covers ESPHome's
+// variants (Task/Interrupt/RTC Watchdog, Software Panic).
+const PROBLEM_RESET_RE = /brownout|watchdog|panic/i;
 const SOURCE_TYPE = { cistern: "Zisterne", mains: "Festwasser" };
 const SENSOR_KIND = { rain: "Regen", soil_moisture: "Bodenfeuchte" };
 const RESULT_LABEL = {
@@ -243,6 +248,19 @@ class GardenEspCard extends HTMLElement {
     return `<a class="fwbanner" href="/gardenesp" title="Einstellungen → Hardware">⚠ Flashen ausstehend: ${esc(names.join(" · "))}</a>`;
   }
 
+  // Banner shown when a box's last reboot had a fault cause (roadmap #20): a
+  // brownout/watchdog/panic reset — the kind that interrupts a run. Benign reasons
+  // (power-on, restart button, OTA) stay hidden to keep the dashboard quiet.
+  _rebootBanner(cfg) {
+    const names = Object.values(cfg.boxes || {})
+      .filter((b) => b.enabled !== false)
+      .map((b) => ({ b, r: this._val(b.id, "reset_reason") }))
+      .filter(({ r }) => r && PROBLEM_RESET_RE.test(r))
+      .map(({ b, r }) => `${b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : b.name || b.id} — ${r}`);
+    if (!names.length) return "";
+    return `<div class="fwbanner" title="Letzter Neustart mit Störungs-Ursache (Brownout/Watchdog/Panik)">⚠ Letzter Neustart: ${esc(names.join(" · "))}</div>`;
+  }
+
   _build() {
     if (this._built) return;
     this._built = true;
@@ -313,6 +331,7 @@ class GardenEspCard extends HTMLElement {
     card.innerHTML = `
       ${hd}<a class="open" href="/gardenesp" title="Einstellungen öffnen">⚙</a></div>
       ${this._fwBanner(cfg)}
+      ${this._rebootBanner(cfg)}
       ${rows || `<div class="empty">Noch nichts konfiguriert — siehe Einstellungen ⚙</div>`}
       ${this._details ? this._detailsOverlay(cfg) : ""}`;
     this._bind();

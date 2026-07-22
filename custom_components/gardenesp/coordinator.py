@@ -609,14 +609,15 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
 
     def _box_diag_entities(
         self, box: Box
-    ) -> tuple[str | None, str | None, str | None]:
-        """``(wifi_signal, boot_count, emergency_count)`` entity_ids of a box's
-        diagnostic sensors (FR-S13 / CR-0011), matched in the box's ESPHome
-        config-entry registry by folded name — these sensors live in the generated
-        YAML (§5.4), not in ``box.inputs``."""
+    ) -> tuple[str | None, str | None, str | None, str | None]:
+        """``(wifi_signal, boot_count, emergency_count, reset_reason)`` entity_ids of
+        a box's diagnostic sensors (FR-S13 / CR-0011 / roadmap #20), matched in the
+        box's ESPHome config-entry registry by folded name — these sensors live in the
+        generated YAML (§5.4), not in ``box.inputs``. The reset-reason is an ESPHome
+        ``text_sensor`` (HA ``sensor`` domain), resolved through the same index."""
         entry_id = self._esphome_entry_id_for_box(box)
         if entry_id is None:
-            return None, None, None
+            return None, None, None, None
         reg = er.async_get(self.hass)
         index: dict[str, str] = {}
         for ent in er.async_entries_for_config_entry(reg, entry_id):
@@ -626,14 +627,16 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_WIFI_NAME)),
             index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_BOOT_NAME)),
             index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_EMERGENCY_NAME)),
+            index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_RESET_REASON_NAME)),
         )
 
     def _refresh_box_diagnostics(self, box: Box) -> None:
         """Publish board diagnostics (FR-S13): live WLAN signal (dBm) and restarts
         today/yesterday (live boot counter vs. the recorder-derived day baselines)."""
-        wifi, boot, emergency = self._box_diag_entities(box)
+        wifi, boot, emergency, reset = self._box_diag_entities(box)
         self._check_emergency(box, emergency)
         self._set_value(box.id, "wifi_signal", self._state_float(wifi))
+        self._set_value(box.id, "reset_reason", self._state_text(reset))
         current = self._state_float(boot)
         # Self-heal: if the boot-count entity has a value but no baseline yet (it
         # appeared after the last refresh, e.g. a reflash/reconnect), establish the
@@ -717,7 +720,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         prev_start = today_start - timedelta(days=1)
         try:
             for box in self.config.boxes.values():
-                _, boot, _ = self._box_diag_entities(box)
+                _, boot, _, _ = self._box_diag_entities(box)
                 if not boot:
                     self._boot_baseline.pop(box.id, None)
                     continue
@@ -1299,6 +1302,12 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             return float(raw)
         except ValueError:
             return None
+
+    def _state_text(self, entity_id: str | None) -> str | None:
+        """Current state as a plain string (roadmap #20 reset reason), or ``None``
+        for unknown/unavailable/empty — ``_state_raw`` already drops the former."""
+        raw = self._state_raw(entity_id)
+        return raw or None
 
     # --- reads & actuation (FR-L1/L2, FR-R1) ---------------------------------
     def _read_raw(self, source: Source | None) -> float | None:

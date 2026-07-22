@@ -69,6 +69,18 @@ class TestAsciiFold(unittest.TestCase):
             gen.ascii_fold("Vierfach Ventil 1/4"),
         )
 
+    def test_esphome_name_emits_fraction_slash(self):
+        # The emitted name must carry U+2044, not a plain "/" (a hard error in
+        # ESPHome 2026.7.0). Umlauts are still ASCII-folded.
+        self.assertEqual(gen.esphome_name("Vierfach Ventil 1/4"), "Vierfach Ventil 1⁄4")
+        self.assertEqual(gen.esphome_name("Größe 3/4"), "Groesse 3⁄4")
+        self.assertNotIn("/", gen.esphome_name("a/b/c"))
+
+    def test_esphome_name_round_trips_through_resolver(self):
+        # ascii_fold(emit) must equal ascii_fold(config) so resolution is unchanged.
+        for raw in ("Vierfach Ventil 1/4", "Rasen", "Zisterne füllen 1/2"):
+            self.assertEqual(gen.ascii_fold(gen.esphome_name(raw)), gen.ascii_fold(raw))
+
 
 class TestGardenControl(unittest.TestCase):
     """GardenControl = fixed board template (matches the Smart-MF firmware)."""
@@ -100,6 +112,14 @@ class TestGardenControl(unittest.TestCase):
         yaml = gen.generate_box_yaml(box)
         self.assertIn('name: "Groessere Entnahme"', yaml)
         self.assertNotIn("Größere", yaml)
+
+    def test_slash_in_name_emitted_as_fraction_slash(self):
+        # A "/" in a valve name must be emitted as U+2044, else ESPHome rewrites it
+        # (warning today, hard error in 2026.7.0). Flashed result is identical.
+        box = _box(outputs=[{"id": "v1", "type": "valve", "name": "Vierfach Ventil 1/4", "channel": "5"}])
+        yaml = gen.generate_box_yaml(box)
+        self.assertIn('name: "Vierfach Ventil 1⁄4"', yaml)
+        self.assertNotIn('name: "Vierfach Ventil 1/4"', yaml)
 
     def test_pump_channel_maps_to_relay_pin(self):
         # The board crosses the relay pins against their printed labels: the screw
@@ -643,6 +663,28 @@ class TestBoardDiagnostics(unittest.TestCase):
         # Both counters share one top-level `globals:` key.
         for y in self._both():
             self.assertEqual(sum(1 for ln in y.splitlines() if ln == "globals:"), 1)
+
+    def test_debug_component_and_reset_reason(self):
+        # roadmap #20: the `debug` component backs the reboot-cause diagnostics.
+        for y in self._both():
+            self.assertEqual(sum(1 for ln in y.splitlines() if ln == "debug:"), 1)
+            self.assertEqual(sum(1 for ln in y.splitlines() if ln == "text_sensor:"), 1)
+            self.assertIn("platform: debug", y)
+            self.assertIn("reset_reason:", y)
+            self.assertIn(f'name: "{gen.DIAG_RESET_REASON_NAME}"', y)
+
+    def test_debug_heap_and_loop_sensors(self):
+        # Free heap / largest block / loop time — memory-leak + hang signatures.
+        for y in self._both():
+            self.assertIn(f'name: "{gen.DIAG_HEAP_FREE_NAME}"', y)
+            self.assertIn(f'name: "{gen.DIAG_HEAP_BLOCK_NAME}"', y)
+            self.assertIn(f'name: "{gen.DIAG_LOOP_TIME_NAME}"', y)
+            self.assertIn("loop_time:", y)
+
+    def test_debug_diagnostics_are_diagnostic_category(self):
+        # The reset reason / heap entities must be diagnostic, not primary.
+        for y in self._both():
+            self.assertIn("entity_category: diagnostic", y)
 
 
 class TestGcInputPin(unittest.TestCase):
