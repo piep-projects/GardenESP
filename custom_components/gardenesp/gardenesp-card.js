@@ -275,6 +275,12 @@ class GardenEspCard extends HTMLElement {
   _render() {
     const card = this.shadowRoot && this.shadowRoot.getElementById("card");
     if (!card) return;
+    // The whole card is rebuilt via innerHTML below; if the manual-timer input is
+    // being edited, remember focus + caret so the poll re-render doesn't kick the
+    // user out of the field (and dismiss the iOS keyboard) mid-edit.
+    const active = this.shadowRoot.activeElement;
+    const keepInput = !!(active && active.matches && active.matches("[data-mininput]"));
+    const caret = keepInput ? [active.selectionStart, active.selectionEnd] : null;
     const title = this._config.title || APP_NAME;
     const hd = `<div class="hd"><span class="ttl"><ha-icon icon="${ICON}"></ha-icon>${esc(title)}</span>`;
     if (this._loading) {
@@ -335,6 +341,13 @@ class GardenEspCard extends HTMLElement {
       ${rows || `<div class="empty">Noch nichts konfiguriert — siehe Einstellungen ⚙</div>`}
       ${this._details ? this._detailsOverlay(cfg) : ""}`;
     this._bind();
+    if (keepInput) {
+      const inp = card.querySelector("[data-mininput]");
+      if (inp) {
+        inp.focus();
+        try { inp.setSelectionRange(caret[0], caret[1]); } catch (e) { /* selection unsupported */ }
+      }
+    }
   }
 
   // detail = "kind:id" → the whole row is clickable and opens that Details overlay.
@@ -505,9 +518,11 @@ class GardenEspCard extends HTMLElement {
 
   // --- inline manual-start timer ---------------------------------------------
   _inlineTimer() {
-    const min = this._inline.min;
+    // Show what the user has typed (mirrored to _inline.raw on input), not the
+    // preset — otherwise the 10 s poll re-render would overwrite their edit.
+    const val = this._inline.raw != null ? this._inline.raw : fmtDurInput(this._inline.min);
     return `<div class="timer">
-      <input type="text" class="mininput" value="${esc(fmtDurInput(min))}" data-mininput placeholder="5 / 0:18" title="Minuten (z. B. 5) oder m:ss (z. B. 0:18 = 18 s)">
+      <input type="text" class="mininput" value="${esc(val)}" data-mininput placeholder="5 / 0:18" title="Minuten (z. B. 5) oder m:ss (z. B. 0:18 = 18 s)">
       <span class="unit">min / m:ss</span>
       <button class="btn primary" data-go>Start</button>
       <button class="btn ghost" data-cancelinline>✕</button>
@@ -786,6 +801,10 @@ class GardenEspCard extends HTMLElement {
       this._inline = null;
       this._render();
     });
+    // Mirror every keystroke into state so the periodic poll re-render keeps the
+    // user's typed duration instead of snapping it back to the preset.
+    const mininput = card.querySelector("[data-mininput]");
+    if (mininput) mininput.addEventListener("input", (e) => { if (this._inline) this._inline.raw = e.target.value; });
     on("[data-go]", () => {
       const input = card.querySelector("[data-mininput]");
       const parsed = parseDurInput(input && input.value);
