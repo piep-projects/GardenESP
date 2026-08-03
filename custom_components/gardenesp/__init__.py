@@ -23,6 +23,8 @@ from .const import (
     CARD_FILENAME,
     CARD_WWW_URL,
     DOMAIN,
+    I18N_DIRNAME,
+    I18N_STATIC_URL,
     PANEL_CUSTOM_NAME,
     PANEL_FILENAME,
     PANEL_ICON,
@@ -132,9 +134,15 @@ async def _async_register_panel(hass: HomeAssistant, version: str) -> None:
     removed on the last unload.
     """
     if not hass.data.get(_STATIC_REGISTERED):
-        panel_js = Path(__file__).parent / "panel" / PANEL_FILENAME
+        here = Path(__file__).parent
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(PANEL_STATIC_URL, str(panel_js), False)]
+            [
+                StaticPathConfig(PANEL_STATIC_URL, str(here / "panel" / PANEL_FILENAME), False),
+                # Frontend translation catalogs (FR-I1) — served to the panel *and*
+                # the card, which fetch `<url>/<lang>.json?v=<version>`. Cached:
+                # the version query busts it, same as for the panel/card modules.
+                StaticPathConfig(I18N_STATIC_URL, str(here / I18N_DIRNAME), True),
+            ]
         )
         hass.data[_STATIC_REGISTERED] = True
 

@@ -36,6 +36,15 @@ PANEL_CUSTOM_NAME: Final = "gardenesp-panel"      # custom element tag
 CARD_FILENAME: Final = "gardenesp-card.js"
 CARD_WWW_URL: Final = f"/local/{CARD_FILENAME}"
 
+# --- Frontend translation catalogs (FR-I1, i18n-concept §6) -------------------
+# One shared catalog per language for *both* front-ends. Served from the
+# integration directory over its own static path — not mirrored into www/: the
+# panel is already served that way, so this avoids a second copy of the files
+# (and the stale-content risk when HACS unzips with old timestamps). Both
+# front-ends fetch `<url>/<lang>.json?v=<manifest version>` (cache-busting).
+I18N_DIRNAME: Final = "frontend_i18n"
+I18N_STATIC_URL: Final = f"/{DOMAIN}_i18n"
+
 # --- Storage (FDS §9.4) -------------------------------------------------------
 STORAGE_VERSION: Final = 1
 STORE_CONFIG: Final = f"{DOMAIN}.config"      # Single source of truth (config)
@@ -96,3 +105,20 @@ STATUS_AUTOMATIC_OFF: Final = "automatic_off"
 STATUS_SETTLING: Final = "settling"  # valve off, cistern settle/measurement running (FR-A3)
 STATUS_BOX_DISABLED: Final = "box_disabled"  # line's box is deactivated (FR-S, out of service)
 STATUS_UNREACHABLE: Final = "unreachable"  # valve switch unavailable/unknown (#9e safety gate)
+
+# Every status a line sensor can report. Single source for the ENUM sensor's
+# `options` (sensor.py) and the translation catalogs
+# (entity.sensor.status.state.* in strings.json + translations/*.json) — a new
+# status must be added here, published from the coordinator, and translated in
+# every language. tests/test_translations.py enforces all three.
+LINE_STATUSES: Final = (
+    STATUS_ACTIVE,
+    STATUS_IDLE,
+    STATUS_WAITING,
+    STATUS_BLOCKED_SENSOR,
+    STATUS_BLOCKED_LEVEL,
+    STATUS_AUTOMATIC_OFF,
+    STATUS_SETTLING,
+    STATUS_BOX_DISABLED,
+    STATUS_UNREACHABLE,
+)

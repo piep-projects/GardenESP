@@ -15,7 +15,20 @@
       "level": { "name": "Fill level" },
       "level_pct": { "name": "Fill level %" },
       "consumption_today": { "name": "Consumption today" },
-      "status": { "name": "Status" },
+      "status": {
+        "name": "Status",
+        "state": {
+          "active": "Active",
+          "idle": "Idle",
+          "waiting": "Waiting",
+          "blocked_sensor": "Blocked · sensor wet",
+          "blocked_level": "Blocked · low water level",
+          "automatic_off": "Automatic off",
+          "settling": "Settling · measuring",
+          "box_disabled": "Controller disabled",
+          "unreachable": "Unreachable"
+        }
+      },
       "next_run": { "name": "Next run" },
       "last_liters": { "name": "Last amount" },
       "moisture": { "name": "Soil moisture" }

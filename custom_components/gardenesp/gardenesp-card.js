@@ -13,17 +13,25 @@
  *     title: GardenESP          # optional
  */
 
+// Glyph + colour stay in code (decoration); the wording lives in the language
+// catalogs under `card.status.<state>` (i18n-concept §4).
 const STATUS = {
-  active: { label: "● Aktiv", cls: "ok" },
-  idle: { label: "○ Inaktiv", cls: "muted" },
-  waiting: { label: "○ Wartend", cls: "warn" },
-  blocked_sensor: { label: "⚠ Gesperrt · Sensor nass", cls: "info" },
-  blocked_level: { label: "⚠ Gesperrt · Wasserstand niedrig", cls: "info" },
-  automatic_off: { label: "◌ Automatik AUS", cls: "muted" },
-  box_disabled: { label: "◌ Steuergerät deaktiviert", cls: "muted" },
-  unreachable: { label: "⚠ Nicht erreichbar", cls: "warn" },
-  settling: { label: "◐ Nachlauf · Messung", cls: "warn" },
+  active: { glyph: "●", cls: "ok" },
+  idle: { glyph: "○", cls: "muted" },
+  waiting: { glyph: "○", cls: "warn" },
+  blocked_sensor: { glyph: "⚠", cls: "info" },
+  blocked_level: { glyph: "⚠", cls: "info" },
+  automatic_off: { glyph: "◌", cls: "muted" },
+  box_disabled: { glyph: "◌", cls: "muted" },
+  unreachable: { glyph: "⚠", cls: "warn" },
+  settling: { glyph: "◐", cls: "warn" },
 };
+// Label for a status badge: „● Aktiv" / „● Active". Unknown values fall back to
+// the resting state, mirroring the `STATUS[status] || STATUS.idle` lookup.
+function statusLabel(status) {
+  const key = STATUS[status] ? status : "idle";
+  return `${STATUS[key].glyph} ${t(`card.status.${key}`)}`;
+}
 // Pure resting states carry no information the row doesn't already show (Letzte/
 // Nächste + ▶-Start button ⇒ „ruht gerade") → render no badge. „Automatik AUS" is
 // already surfaced by the separate „Auto aus"-Tag, so it needn't repeat as a badge.
@@ -35,25 +43,20 @@ const FW_ATTENTION = ["drift", "drift_offline", "drift_export"];
 // (power-on, restart button, OTA) stay hidden. The substring match covers ESPHome's
 // variants (Task/Interrupt/RTC Watchdog, Software Panic).
 const PROBLEM_RESET_RE = /brownout|watchdog|panic/i;
-const SOURCE_TYPE = { cistern: "Zisterne", mains: "Festwasser" };
-const SENSOR_KIND = { rain: "Regen", soil_moisture: "Bodenfeuchte" };
-const RESULT_LABEL = {
-  completed: "fertig",
-  stopped: "gestoppt",
-  skipped_sensor: "übersprungen (Sensor)",
-  skipped_level: "Wasserstand niedrig",
-  skipped_unreachable: "übersprungen (nicht erreichbar)",
-  superseded: "abgelöst (Neustart)",
-  interrupted: "abgebrochen (Steuergerät weg)",
-  emergency: "Notabschaltung",
-};
+// Wording for these lives in the language catalogs (card.source_type.* /
+// card.sensor_kind.* / card.result.* / card.trigger.*); the code only keeps the keys.
+const SOURCE_TYPES = ["cistern", "mains"];
+const SENSOR_KINDS = ["rain", "soil_moisture"];
+const RESULTS = ["completed", "stopped", "skipped_sensor", "skipped_level",
+  "skipped_unreachable", "superseded", "interrupted", "emergency"];
+const resultLabel = (r) => (RESULTS.includes(r) ? t(`card.result.${r}`) : r);
 // Run results that count as a disturbance (Störung) surfaced on the dashboard
 // (CR-0011). Deliberate outcomes (rain skip, planned supersede, manual stop) are
 // excluded — those are normal operation, not a fault.
 const FAULT_RESULTS = new Set([
   "skipped_unreachable", "skipped_level", "interrupted", "emergency",
 ]);
-const TRIGGER_LABEL = { auto: "Automatik", manual: "manuell" };
+const triggerLabel = (x) => (x === "auto" || x === "manual" ? t(`card.trigger.${x}`) : x || "—");
 // Type icons — mockup Ansicht 1 / ui-mockup.md.
 const ICONS = {
   line: "mdi:water",
@@ -67,6 +70,174 @@ const ICONS = {
 const POLL_MS = 10000;
 const ICON = "mdi:sprout"; // shared with sidebar panel (const.py PANEL_ICON)
 const APP_NAME = "GardenESP";
+
+// ---------------------------------------------------------------------------
+// i18n / l10n (FR-I1, docs/i18n-concept.md §4/§7/§8)
+//
+// Three independent axes, three signals — never coupled: language follows
+// `hass.language`, number/date format follows `hass.locale`, units follow
+// `hass.config.unit_system`. Translations are *data*: one flat JSON catalog per
+// language, fetched at runtime, so a new language is a new file and no code
+// change. English is the base/fallback across all subsystems.
+// ---------------------------------------------------------------------------
+const I18N_URL = "/gardenesp_i18n"; // static path (const.py I18N_STATIC_URL)
+const I18N_BASE_LANG = "en";
+// Our own module URL carries `?v=<manifest version>` (the Lovelace resource is
+// registered that way) — reuse it to cache-bust the catalogs in lockstep.
+const VERSION = (() => {
+  try {
+    return new URL(import.meta.url).searchParams.get("v") || "0";
+  } catch (e) {
+    return "0";
+  }
+})();
+// Emergency catalog: if *no* catalog can be fetched (stale deploy, 404, offline)
+// the fallback chain would end at the raw key and the whole card would read
+// „card.status.active" — worse than before i18n existed. These few English
+// strings keep it usable; everything else still degrades to its key.
+const I18N_EMERGENCY = {
+  "common.loading": "Loading…",
+  "common.error": "Error: {msg}",
+  "error.unknown": "Unknown error",
+  "error.code": "Error {code}",
+  "error.ws_connect": "Cannot connect to Home Assistant",
+  "error.ws_auth": "Authentication invalid",
+  "error.ws_disconnected": "Connection to Home Assistant lost",
+  // Scope of this list: the **always-visible row list** (status, units, the
+  // Letzte/Nächste labels, row buttons, sensor states). Deeper surfaces (details
+  // overlay, history table) fall back to humanizeKey() below — the user opens
+  // those deliberately and a later poll heals the catalog anyway.
+  "card.status.active": "Active",
+  "card.status.idle": "Idle",
+  "card.status.waiting": "Waiting",
+  "card.status.blocked_sensor": "Blocked · sensor wet",
+  "card.status.blocked_level": "Blocked · low water level",
+  "card.status.automatic_off": "Automatic OFF",
+  "card.status.box_disabled": "Controller disabled",
+  "card.status.unreachable": "Unreachable",
+  "card.status.settling": "Settling · measuring",
+  "unit.liters": "L",
+  "unit.cubic_meters": "m³",
+  "unit.gallons": "gal",
+  "unit.minutes": "min",
+  "unit.seconds": "s",
+  "card.label.last": "Last",
+  "card.label.next": "Next",
+  "card.tag.auto_off": "Auto off",
+  "card.row.box_out_of_service": "Controller out of service",
+  "card.row.box_disabled": "Controller disabled",
+  "card.action.start": "Start",
+  "card.action.start_anyway": "Start anyway (sensor blocks)",
+  "card.action.stop": "Stop",
+  "card.sensor.dry": "dry",
+  "card.sensor.wet": "wet",
+  "card.sensor.moist": "moist",
+};
+const _i18nFetches = new Map(); // lang -> Promise<catalog|null>
+let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
+// Format/unit state, refreshed from `hass` on every load. Kept module-level so
+// the formatters stay callable from anywhere (they are used in dozens of places
+// that have no `hass` at hand) while still following the two other axes.
+const _fmt = { locale: I18N_BASE_LANG, us: false };
+
+function i18nLang(hass) {
+  return String((hass && hass.language) || I18N_BASE_LANG).split("-")[0];
+}
+
+function i18nFetch(lang) {
+  if (!_i18nFetches.has(lang)) {
+    _i18nFetches.set(
+      lang,
+      fetch(`${I18N_URL}/${lang}.json?v=${encodeURIComponent(VERSION)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    );
+  }
+  return _i18nFetches.get(lang);
+}
+
+// Load base (en) *and* the active language, then merge on read. Called from the
+// existing async initial load, so the first render already has its strings —
+// no flash of untranslated content.
+async function i18nLoad(hass) {
+  const lang = i18nLang(hass);
+  // Number format and units are their own axes — refresh them every time, the
+  // user may switch unit system without switching language.
+  const units = (hass && hass.config && hass.config.unit_system) || {};
+  _fmt.locale = (hass && hass.locale && hass.locale.language) || lang;
+  _fmt.us = units.volume === "gal" || units.length === "mi";
+  if (_i18n.lang === lang) return;
+  const [base, cat] = await Promise.all([
+    i18nFetch(I18N_BASE_LANG),
+    lang === I18N_BASE_LANG ? null : i18nFetch(lang),
+  ]);
+  _i18n = {
+    lang,
+    base: base || {},
+    cat: cat || (lang === I18N_BASE_LANG ? base || {} : {}),
+    degraded: !base,
+  };
+  if (_i18n.degraded) console.warn(`${APP_NAME}: no translation catalog loaded — falling back to built-in English`);
+}
+
+// Three-step fallback: active language → en → emergency → key. Placeholders are
+// named (`{n}`); values are substituted verbatim, so anything user-supplied must
+// be esc()'d by the caller — t() does not escape.
+function t(key, vars) {
+  const s = _i18n.cat[key] ?? _i18n.base[key] ?? I18N_EMERGENCY[key] ?? humanizeKey(key);
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k]))) : s;
+}
+// Last resort so a key never reaches the screen as „card.detail.max_volume":
+// take its last segment and make it readable („Max volume"). Only reachable if
+// no catalog loaded at all — the CI guard rules out genuinely missing keys.
+function humanizeKey(key) {
+  const last = String(key).split(".").pop().replace(/_/g, " ");
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+// Number/date formatting follows `hass.locale` (falls back to the language) —
+// never a hard-coded "de-DE".
+function fmtNum(value, opts) {
+  const n = Number(value);
+  if (!isFinite(n)) return "—";
+  try {
+    return new Intl.NumberFormat(_fmt.locale, opts).format(n);
+  } catch (e) {
+    return String(n);
+  }
+}
+function fmtDateParts(date, opts) {
+  try {
+    return new Intl.DateTimeFormat(_fmt.locale, opts).format(date);
+  } catch (e) {
+    return date.toISOString();
+  }
+}
+// Counterpart to fmtNum: read a number the user typed. Accepts both decimal
+// separators, because a localised display must stay re-editable (a de user types
+// "1,5", an en user "1.5"). Never feed a formatted string back into an input.
+function parseNum(text) {
+  if (text == null) return NaN;
+  const s = String(text).trim().replace(/\s/g, "");
+  if (!s) return NaN;
+  // "1.234,5" → thousands dot; "1,5" → decimal comma; "1.5" → decimal dot.
+  const norm = /,\d{1,3}$/.test(s) ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  return Number(norm);
+}
+
+// Units are their own axis: storage/logic/calibration stay metric everywhere,
+// only the *display* converts (FR-I1 (e)). HA's own sensors convert themselves;
+// this is for the volumes we format by hand.
+const L_PER_GAL = 3.785411784;
+// Liters → display unit. `withUnit` false gives the bare number (for rows that
+// print the unit themselves).
+function vol(liters, withUnit = true) {
+  const v = Number(liters);
+  if (!isFinite(v)) return "—";
+  if (_fmt.us)
+    return `${fmtNum(v / L_PER_GAL, { maximumFractionDigits: 0 })}${withUnit ? ` ${t("unit.gallons")}` : ""}`;
+  return `${fmtNum(Math.round(v), { maximumFractionDigits: 0 })}${withUnit ? ` ${t("unit.liters")}` : ""}`;
+}
 
 class GardenEspCard extends HTMLElement {
   constructor() {
@@ -136,9 +307,13 @@ class GardenEspCard extends HTMLElement {
   async _load() {
     if (!this._hass) return;
     try {
+      // The language catalogs ride along with the data the card already awaits
+      // before its first render — no flash of untranslated content, and a failed
+      // catalog fetch never fails the load (i18nLoad resolves either way).
       const [cfg, hist] = await Promise.all([
         this._ws({ type: "gardenesp/config/get" }),
         this._ws({ type: "gardenesp/history" }),
+        i18nLoad(this._hass),
       ]);
       this._data = cfg;
       this._history = (hist && hist.entries) || [];
@@ -227,7 +402,7 @@ class GardenEspCard extends HTMLElement {
     const label = esc(`${b.label ? b.label + " · " : ""}${b.name || b.id}`);
     const line1 = `<span class="nm">${label}</span>`;
     const right = `<span class="muted">deaktiviert</span>`;
-    return this._row(ICONS.box_off, "", line1, "Steuergerät außer Betrieb", right, "");
+    return this._row(ICONS.box_off, "", line1, t("card.row.box_out_of_service"), right, "");
   }
   // Short id (A5) for any output ref "{box_id}#{output_id}".
   _refLabel(cfg, ref) {
@@ -243,9 +418,9 @@ class GardenEspCard extends HTMLElement {
   _fwBanner(cfg) {
     const names = Object.values(cfg.boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
-      .map((b) => (b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : b.name || b.id));
+      .map((b) => (b.label ? t("card.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id));
     if (!names.length) return "";
-    return `<a class="fwbanner" href="/gardenesp" title="Einstellungen → Hardware">⚠ Flashen ausstehend: ${esc(names.join(" · "))}</a>`;
+    return `<a class="fwbanner" href="/gardenesp" title="${esc(t("card.banner.flash_title"))}">${esc(t("card.banner.flash_pending", { names: names.join(" · ") }))}</a>`;
   }
 
   // Banner shown when a box's last reboot had a fault cause (roadmap #20): a
@@ -256,9 +431,9 @@ class GardenEspCard extends HTMLElement {
       .filter((b) => b.enabled !== false)
       .map((b) => ({ b, r: this._val(b.id, "reset_reason") }))
       .filter(({ r }) => r && PROBLEM_RESET_RE.test(r))
-      .map(({ b, r }) => `${b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : b.name || b.id} — ${r}`);
+      .map(({ b, r }) => `${b.label ? t("card.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id} — ${r}`);
     if (!names.length) return "";
-    return `<div class="fwbanner" title="Letzter Neustart mit Störungs-Ursache (Brownout/Watchdog/Panik)">⚠ Letzter Neustart: ${esc(names.join(" · "))}</div>`;
+    return `<div class="fwbanner" title="${esc(t("card.banner.reboot_title"))}">${esc(t("card.banner.reboot", { names: names.join(" · ") }))}</div>`;
   }
 
   _build() {
@@ -284,14 +459,14 @@ class GardenEspCard extends HTMLElement {
     const title = this._config.title || APP_NAME;
     const hd = `<div class="hd"><span class="ttl"><ha-icon icon="${ICON}"></ha-icon>${esc(title)}</span>`;
     if (this._loading) {
-      card.innerHTML = `${hd}</div><div class="empty">Lade…</div>`;
+      card.innerHTML = `${hd}</div><div class="empty">${esc(t("common.loading"))}</div>`;
       return;
     }
     // Only take over the whole card when we have nothing to show yet. A refresh
     // failure while data is already loaded keeps the dashboard visible (the poll
     // recovers on its own) instead of stranding the user on an error screen.
     if (this._error && !this._data) {
-      card.innerHTML = `${hd}</div><div class="empty err">Fehler: ${esc(this._error)}</div>`;
+      card.innerHTML = `${hd}</div><div class="empty err">${esc(t("common.error", { msg: this._error }))}</div>`;
       return;
     }
     const cfg = this._cfg();
@@ -377,11 +552,11 @@ class GardenEspCard extends HTMLElement {
     if (status === "blocked_level") status = ln.automatic ? "idle" : "automatic_off";
     const st = STATUS[status] || STATUS.idle;
     const label = esc(`${this._lineId(cfg, ln)} · ${ln.name || id}`);
-    const auto = ln.automatic ? "" : ` <span class="tag">Auto aus</span>`;
+    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("card.tag.auto_off"))}</span>`;
     const last = this._lastFor(id);
     const lastIsFault = last && last === this._faultFor(id);
-    const lastTxt = last ? `Letzte: ${fmtLast(last, lastIsFault)}` : "Letzte: —";
-    const nextTxt = `Nächste: ${fmtNext(this._val(id, "next_run"))}`;
+    const lastTxt = `${t("card.label.last")}: ${last ? fmtLast(last, lastIsFault) : "—"}`;
+    const nextTxt = `${t("card.label.next")}: ${fmtNext(this._val(id, "next_run"))}`;
     // Source/box belong in the Details overlay (FR-D1a), not the line row (FR-D1).
     const sub = `${lastTxt}${this._faultLine(id, status)} · ${nextTxt}`;
     let badge;
@@ -389,9 +564,9 @@ class GardenEspCard extends HTMLElement {
       badge = "";
     } else if (status === "active") {
       const until = this._val(id, "until");
-      badge = `<span class="badge ok">${st.label} <span data-until="${esc(until || "")}">${fmtRemaining(until)}</span></span>`;
+      badge = `<span class="badge ok">${statusLabel(status)} <span data-until="${esc(until || "")}">${fmtRemaining(until)}</span></span>`;
     } else {
-      badge = `<span class="badge ${st.cls}">${st.label}</span>`;
+      badge = `<span class="badge ${st.cls}">${statusLabel(status)}</span>`;
     }
     // Name (ellipsizes) + status badge stay together on line 1; click the row → Details.
     const line1 = `<span class="nm">${label}</span> ${badge}${auto}`;
@@ -412,10 +587,10 @@ class GardenEspCard extends HTMLElement {
     }
     // Compact icon, far right (mobile-first). Tooltip carries the verb.
     if (status === "active") {
-      return `<button class="iconbtn stop" title="Stopp" data-stop="${esc(id)}"><ha-icon icon="mdi:stop"></ha-icon></button>`;
+      return `<button class="iconbtn stop" title="${esc(t("card.action.stop"))}" data-stop="${esc(id)}"><ha-icon icon="mdi:stop"></ha-icon></button>`;
     }
     if (status === "blocked_sensor") {
-      return `<button class="iconbtn warn" title="Start trotzdem (Sensor sperrt)" data-manual="${esc(id)}" data-force="1"><ha-icon icon="mdi:play"></ha-icon></button>`;
+      return `<button class="iconbtn warn" title="${esc(t("card.action.start_anyway"))}" data-manual="${esc(id)}" data-force="1"><ha-icon icon="mdi:play"></ha-icon></button>`;
     }
     return `<button class="iconbtn primary" title="Manuell starten" data-manual="${esc(id)}"><ha-icon icon="mdi:play"></ha-icon></button>`;
   }
@@ -426,24 +601,24 @@ class GardenEspCard extends HTMLElement {
     const boxOff = this._lineOutOfService(cfg, ln);
     const status = boxOff ? "box_disabled" : this._val(id, "status", ln.automatic ? "idle" : "automatic_off");
     const st = STATUS[status] || STATUS.idle;
-    const auto = ln.automatic ? "" : ` <span class="tag">Auto aus</span>`;
+    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("card.tag.auto_off"))}</span>`;
     const last = this._lastFor(id);
     const lastIsFault = last && last === this._faultFor(id);
-    const sub = `${last ? `Letzte: ${fmtLast(last, lastIsFault)}` : "Letzte: —"}${this._faultLine(id, status)} · Nächste: ${fmtNext(this._val(id, "next_run"))}`;
+    const sub = `${t("card.label.last")}: ${last ? fmtLast(last, lastIsFault) : "—"}${this._faultLine(id, status)} · ${t("card.label.next")}: ${fmtNext(this._val(id, "next_run"))}`;
     let badge;
     if (RESTING_STATES.has(status)) {
       badge = "";
     } else if (status === "active") {
       const until = this._val(id, "until");
       if (until) {
-        badge = `<span class="badge ok">${st.label} <span data-until="${esc(until)}">${fmtRemaining(until)}</span></span>`;
+        badge = `<span class="badge ok">${statusLabel(status)} <span data-until="${esc(until)}">${fmtRemaining(until)}</span></span>`;
       } else {
         // Dauerbetrieb: no fixed end → count elapsed up instead of a countdown.
         const since = this._val(id, "started");
-        badge = `<span class="badge ok">${st.label} <span data-since="${esc(since || "")}">${fmtElapsed(since)}</span></span>`;
+        badge = `<span class="badge ok">${statusLabel(status)} <span data-since="${esc(since || "")}">${fmtElapsed(since)}</span></span>`;
       }
     } else {
-      badge = `<span class="badge ${st.cls}">${st.label}</span>`;
+      badge = `<span class="badge ${st.cls}">${statusLabel(status)}</span>`;
     }
     const line1 = `<span class="nm">${esc(ln.name || id)}</span> ${badge}${auto}`;
     const action = boxOff ? "" : this._lineActions(ln, status);  // ▶/■ shared with lines
@@ -458,7 +633,7 @@ class GardenEspCard extends HTMLElement {
     // Source on a deactivated box → out of service (shown only when entities are kept visible).
     if (this._isSourceDisabled(cfg, s)) {
       const line1 = `<span class="nm">${esc(s.name || id)}</span>`;
-      return this._row(icon, `source:${esc(id)}`, line1, "", `<span class="muted">Steuergerät deaktiviert</span>`, "");
+      return this._row(icon, `source:${esc(id)}`, line1, "", `<span class="muted">${esc(t("card.row.box_disabled"))}</span>`, "");
     }
     // Single line: name left, fill level right-aligned — just liters, like a box sensor
     // value (Max steht links neben Min in der Übersicht; Prozent nur im Detail). The icon
@@ -475,7 +650,7 @@ class GardenEspCard extends HTMLElement {
       // Festwasser has no fill level — show today's consumption instead (consumption_today,
       // published per source by the coordinator; 0 when nothing was drawn today).
       const today = this._val(id, "consumption_today");
-      right = `<span>${esc(today != null ? Math.round(today) + " L" : "—")}</span>`;
+      right = `<span>${esc(today != null ? vol(today) : "—")}</span>`;
     }
     // Low water level is a property of the source — surfaced here (next to the
     // Zisterne name) rather than as a per-line „Gesperrt" badge.
@@ -499,14 +674,14 @@ class GardenEspCard extends HTMLElement {
     if (inp.kind === "rain") {
       const b = this._val(ref, "state");
       if (b != null) {
-        state = b ? "nass" : "trocken";
+        state = t(b ? "card.sensor.wet" : "card.sensor.dry");
         cls = b ? "info" : "muted";
       }
     } else {
       const m = this._val(ref, "moisture");
       if (m != null) {
         const blocked = inp.threshold_pct && m >= inp.threshold_pct;
-        state = `${Math.round(m)} % · ${blocked ? "feucht" : "trocken"}`;
+        state = `${fmtNum(Math.round(m))} % · ${t(blocked ? "card.sensor.moist" : "card.sensor.dry")}`;
         cls = blocked ? "info" : "muted";
       }
     }
@@ -522,9 +697,9 @@ class GardenEspCard extends HTMLElement {
     // preset — otherwise the 10 s poll re-render would overwrite their edit.
     const val = this._inline.raw != null ? this._inline.raw : fmtDurInput(this._inline.min);
     return `<div class="timer">
-      <input type="text" class="mininput" value="${esc(val)}" data-mininput placeholder="5 / 0:18" title="Minuten (z. B. 5) oder m:ss (z. B. 0:18 = 18 s)">
-      <span class="unit">min / m:ss</span>
-      <button class="btn primary" data-go>Start</button>
+      <input type="text" class="mininput" value="${esc(val)}" data-mininput placeholder="5 / 0:18" title="${esc(t("card.timer.hint"))}">
+      <span class="unit">${esc(t("card.timer.unit"))}</span>
+      <button class="btn primary" data-go>${esc(t("card.action.start"))}</button>
       <button class="btn ghost" data-cancelinline>✕</button>
     </div>`;
   }
@@ -574,15 +749,18 @@ class GardenEspCard extends HTMLElement {
     const out = this._output(cfg, ln.valve_output);
     const src = (cfg.sources || {})[ln.source_id];
     const sensor = this._inputOf(cfg, ln.sensor_input);
-    const es = out && out.emergency_shutdown_min ? `${out.emergency_shutdown_min} min` : "aus";
+    const es = out && out.emergency_shutdown_min
+      ? fmtMinutes(out.emergency_shutdown_min) : t("card.detail.off");
     return this._kv([
-      ["Steuergerät/Ventil", esc(this._valveLabel(cfg, ln))],
-      ["Schalt-Entity", esc(out && out.entity ? out.entity : "—")],
-      ["Quelle", src ? esc(src.name) : "ohne Quelle"],
-      ["Notstop", esc(es)],
-      ["Automatik", ln.automatic ? "ein" : "aus"],
-      ["Sensor", sensor ? `${esc(sensor.name)}${ln.sensor_override ? " · Override (trotz Regen)" : ""}` : "— kein —"],
-      ["Nächste", fmtNext(this._val(ln.id, "next_run"))],
+      [t("card.detail.controller_valve"), esc(this._valveLabel(cfg, ln))],
+      [t("card.detail.switch_entity"), esc(out && out.entity ? out.entity : "—")],
+      [t("card.detail.source"), src ? esc(src.name) : t("card.detail.no_source")],
+      [t("card.detail.emergency_stop"), esc(es)],
+      [t("card.detail.automatic"), t(ln.automatic ? "card.detail.on" : "card.detail.off")],
+      [t("card.detail.sensor"), sensor
+        ? `${esc(sensor.name)}${ln.sensor_override ? ` · ${esc(t("card.detail.override"))}` : ""}`
+        : t("card.detail.none")],
+      [t("card.label.next"), fmtNext(this._val(ln.id, "next_run"))],
     ]);
   }
 
@@ -595,11 +773,8 @@ class GardenEspCard extends HTMLElement {
     const below = side === "below";
     return {
       side,
-      chip: below ? "⚠ Rohwert unter der Kalibrierung" : "⚠ Rohwert über der Kalibrierung",
-      text: `Der Messwert liegt ${below ? "unter dem untersten" : "über dem obersten"} Stützpunkt der ` +
-        `Kalibrierung. Der angezeigte Füllstand bleibt auf dessen Literwert stehen, Läufe buchen 0 L ` +
-        `Verbrauch und der Mindest-Füllstand greift nicht mehr. In den Einstellungen einen Stützpunkt ` +
-        `${below ? "darunter" : "darüber"} ergänzen.`,
+      chip: t(below ? "card.calib.chip_below" : "card.calib.chip_above"),
+      text: t(below ? "card.calib.text_below" : "card.calib.text_above"),
     };
   }
 
@@ -613,21 +788,21 @@ class GardenEspCard extends HTMLElement {
       // sensor — no need to add the entity to the dashboard separately.
       const ent = this._entityId(s.id, "level");
       const histBtn = ent
-        ? `<button class="btn ghost histbtn" data-moreinfo="${esc(ent)}"><ha-icon icon="mdi:chart-line"></ha-icon> Füllstand-Verlauf</button>`
+        ? `<button class="btn ghost histbtn" data-moreinfo="${esc(ent)}"><ha-icon icon="mdi:chart-line"></ha-icon> ${esc(t("card.detail.level_history"))}</button>`
         : "";
       return (rw ? `<div class="faultbox">${esc(rw.chip)} — ${esc(rw.text)}</div>` : "")
         + this._kv([
-          ["Typ", SOURCE_TYPE[s.type]],
-          ["Füllstand", `${level != null ? Math.round(level) + " L" : "—"}${pct != null ? ` (${pct} %)` : ""}`],
-          ["Max-Volumen", `${s.max_volume_l || "—"} L`],
-          ["Mindest-Füllstand", `${s.min_fill_pct || 0} %`],
-          ["Pumpe", pump ? esc(pump.name) : "—"],
-          ["Beruhigungszeit", `${s.tank_settle_min || 0} min`],
+          [t("card.detail.type"), t(`card.source_type.${s.type}`)],
+          [t("card.detail.level"), `${level != null ? vol(level) : "—"}${pct != null ? ` (${fmtNum(pct)} %)` : ""}`],
+          [t("card.detail.max_volume"), s.max_volume_l ? vol(s.max_volume_l) : "—"],
+          [t("card.detail.min_fill"), `${fmtNum(s.min_fill_pct || 0)} %`],
+          [t("card.detail.pump"), pump ? esc(pump.name) : "—"],
+          [t("card.detail.settle_time"), fmtMinutes(s.tank_settle_min || 0)],
         ]) + histBtn;
     }
     return this._kv([
-      ["Typ", SOURCE_TYPE[s.type]],
-      ["Faktor", `${s.pulse_factor} L/Impuls`],
+      [t("card.detail.type"), t(`card.source_type.${s.type}`)],
+      [t("card.detail.factor"), t("card.detail.factor_value", { v: fmtNum(s.pulse_factor) })],
     ]);
   }
 
@@ -640,7 +815,7 @@ class GardenEspCard extends HTMLElement {
     if (!H || !H.devices || !H.entities) return null;
     let devId = null;
     for (const d of Object.values(H.devices)) {
-      if ((d.identifiers || []).some((t) => t[0] === "gardenesp" && t[1] === objId)) { devId = d.id; break; }
+      if ((d.identifiers || []).some((idf) => idf[0] === "gardenesp" && idf[1] === objId)) { devId = d.id; break; }
     }
     if (!devId) return null;
     for (const e of Object.values(H.entities)) {
@@ -658,13 +833,13 @@ class GardenEspCard extends HTMLElement {
       .filter((ln) => ln.sensor_input === ref)
       .map((ln) => esc(ln.name || ln.id));
     return this._kv([
-      ["Art", SENSOR_KIND[inp.kind] || inp.kind],
-      ["Box", esc(box ? box.name : "—")],
-      ["Entity", esc(inp.entity || "—")],
+      [t("card.detail.kind"), SENSOR_KINDS.includes(inp.kind) ? t(`card.sensor_kind.${inp.kind}`) : inp.kind],
+      [t("card.detail.controller"), esc(box ? box.name : "—")],
+      [t("card.detail.entity"), esc(inp.entity || "—")],
       inp.kind === "soil_moisture"
-        ? ["Schwellwert", `${inp.threshold_pct || 0} %`]
-        : ["Invertiert", inp.inverted ? "ja (Öffner)" : "nein"],
-      ["Zugeordnet zu", used.length ? used.join(" · ") : "—"],
+        ? [t("card.detail.threshold"), `${fmtNum(inp.threshold_pct || 0)} %`]
+        : [t("card.detail.inverted"), t(inp.inverted ? "card.detail.inverted_yes" : "card.detail.inverted_no")],
+      [t("card.detail.assigned_to"), used.length ? used.join(" · ") : "—"],
     ]);
   }
 
@@ -693,7 +868,7 @@ class GardenEspCard extends HTMLElement {
     if (status === "active" || status === "settling") return "";
     const f = this._faultFor(lineId);
     if (!f) return "";
-    const label = RESULT_LABEL[f.result] || f.result;
+    const label = resultLabel(f.result);
     return ` <span class="fault">⚠ ${esc(label)}</span>`;
   }
   _lineName(lineId) {
@@ -712,56 +887,62 @@ class GardenEspCard extends HTMLElement {
     let day = 0, month = 0, prevMonth = 0, year = 0, prevYear = 0, any = false;
     for (const e of this._history) {
       if (!filterFn(e) || e.liters == null) continue;
-      const t = new Date(e.start);
-      if (isNaN(t)) continue;
+      // `ts`, not `t` — the module-level t() translator must not be shadowed.
+      const ts = new Date(e.start);
+      if (isNaN(ts)) continue;
       any = true;
       const L = Number(e.liters) || 0;
-      if (t.getFullYear() === y) {
+      if (ts.getFullYear() === y) {
         year += L;
-        if (t.getMonth() === m) { month += L; if (t.getDate() === d) day += L; }
-      } else if (t.getFullYear() === y - 1) {
+        if (ts.getMonth() === m) { month += L; if (ts.getDate() === d) day += L; }
+      } else if (ts.getFullYear() === y - 1) {
         prevYear += L;
       }
-      if (t.getFullYear() === pmy && t.getMonth() === pm) prevMonth += L;
+      if (ts.getFullYear() === pmy && ts.getMonth() === pm) prevMonth += L;
     }
     if (!any) return "";
     // > 1000 L → m³ in the summary (the Verlauf table below stays in liters).
-    const cell = (label, v) => `<div class="sum"><span class="sl">${esc(label)}</span><span class="sv">${esc(fmtVol(v))}</span></div>`;
-    return `<h3>Verbrauch</h3><div class="sums">${
-      cell("Heute", day) + cell("Monat", month) + cell("Vormonat", prevMonth) +
-      cell("Jahr", year) + cell("Vorjahr", prevYear)}</div>`;
+    const cell = (key, v) => `<div class="sum"><span class="sl">${esc(t(key))}</span><span class="sv">${esc(fmtVol(v))}</span></div>`;
+    return `<h3>${esc(t("card.consumption.title"))}</h3><div class="sums">${
+      cell("card.period.today", day) + cell("card.period.month", month) + cell("card.period.prev_month", prevMonth) +
+      cell("card.period.year", year) + cell("card.period.prev_year", prevYear)}</div>`;
   }
 
   // Per-source Verlauf (same log, filtered by source_id) — like the line history,
   // but with the drawing line instead of the trigger (FR-D6 / Quellen-History).
   _sourceHistoryTable(sourceId) {
     const entries = this._history.filter((e) => e.source_id === sourceId).slice(0, 20);
-    if (!entries.length) return `<h3>Verlauf</h3><div class="empty">Kein Verlauf.</div>`;
+    if (!entries.length)
+      return `<h3>${esc(t("card.history.title"))}</h3><div class="empty">${esc(t("card.history.empty"))}</div>`;
     const rows = entries
       .map(
         (e) => `<tr${FAULT_RESULTS.has(e.result) ? ' class="fault"' : ""}><td>${esc(fmtDateTime(e.start))}</td><td>${esc(this._lineName(e.line_id))}</td>
           <td>${fmtDur(e.duration_min)}</td>
-          <td>${e.liters != null ? (e.approx ? "~" : "") + e.liters + " L" : "—"}</td>
-          <td>${esc(RESULT_LABEL[e.result] || e.result || "")}</td></tr>`
+          <td>${e.liters != null ? (e.approx ? "~" : "") + vol(e.liters) : "—"}</td>
+          <td>${esc(resultLabel(e.result))}</td></tr>`
       )
       .join("");
-    return `<h3>Verlauf</h3><table class="hist"><thead>
-      <tr><th>Datum/Zeit</th><th>Linie</th><th>Dauer</th><th>Liter</th><th>Ergebnis</th></tr></thead>
+    return `<h3>${esc(t("card.history.title"))}</h3><table class="hist"><thead>
+      <tr><th>${esc(t("card.history.col_datetime"))}</th><th>${esc(t("card.history.col_line"))}</th>
+      <th>${esc(t("card.history.col_duration"))}</th><th>${esc(t("card.history.col_volume"))}</th>
+      <th>${esc(t("card.history.col_result"))}</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
   }
   _historyTable(lineId) {
     const entries = this._history.filter((e) => e.line_id === lineId).slice(0, 20);
-    if (!entries.length) return `<div class="empty">Kein Verlauf.</div>`;
+    if (!entries.length) return `<div class="empty">${esc(t("card.history.empty"))}</div>`;
     const rows = entries
       .map(
         (e) => `<tr${FAULT_RESULTS.has(e.result) ? ' class="fault"' : ""}><td>${esc(fmtDateTime(e.start))}</td><td>${fmtDur(e.duration_min)}</td>
-          <td>${e.liters != null ? (e.approx ? "~" : "") + e.liters + " L" : "—"}</td>
-          <td>${esc(TRIGGER_LABEL[e.trigger] || e.trigger || "")}</td>
-          <td>${esc(RESULT_LABEL[e.result] || e.result || "")}</td></tr>`
+          <td>${e.liters != null ? (e.approx ? "~" : "") + vol(e.liters) : "—"}</td>
+          <td>${esc(triggerLabel(e.trigger))}</td>
+          <td>${esc(resultLabel(e.result))}</td></tr>`
       )
       .join("");
-    return `<h3>Verlauf</h3><table class="hist"><thead>
-      <tr><th>Datum/Zeit</th><th>Dauer</th><th>Liter</th><th>Auslöser</th><th>Ergebnis</th></tr></thead>
+    return `<h3>${esc(t("card.history.title"))}</h3><table class="hist"><thead>
+      <tr><th>${esc(t("card.history.col_datetime"))}</th><th>${esc(t("card.history.col_duration"))}</th>
+      <th>${esc(t("card.history.col_volume"))}</th><th>${esc(t("card.history.col_trigger"))}</th>
+      <th>${esc(t("card.history.col_result"))}</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
   }
 
@@ -790,7 +971,7 @@ class GardenEspCard extends HTMLElement {
     });
 
     on("[data-stop]", (e) =>
-      this._action({ type: "gardenesp/line/stop", line_id: e.currentTarget.dataset.stop }, "Stopp"));
+      this._action({ type: "gardenesp/line/stop", line_id: e.currentTarget.dataset.stop }, t("card.action.stop")));
     on("[data-manual]", (e) => {
       const el = e.currentTarget;
       const ln = (this._cfg().lines || {})[el.dataset.manual] || {};
@@ -813,7 +994,7 @@ class GardenEspCard extends HTMLElement {
       this._inline = null;
       this._action(
         { type: "gardenesp/line/start", line_id: inl.id, duration_min: min, force: !!inl.force },
-        "Start"
+        t("card.action.start")
       );
     });
     on("[data-rowdetails]", (e) => {
@@ -852,36 +1033,44 @@ class GardenEspCard extends HTMLElement {
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-// Turn any thrown/rejected value into a readable German message — never "[object
+// Turn any thrown/rejected value into a readable message — never "[object
 // Object]". HA rejects WS calls with {code,message} on command errors and with a
 // bare numeric code (home-assistant-js-websocket) when the connection drops, which
 // happens routinely when the iOS app is backgrounded.
+const WS_ERROR_KEY = { 1: "error.ws_connect", 2: "error.ws_auth", 3: "error.ws_disconnected" };
 function errText(err) {
-  if (err == null) return "Unbekannter Fehler";
+  if (err == null) return t("error.unknown");
   if (typeof err === "string") return err;
   if (typeof err === "number")
-    return { 1: "Verbindung zu Home Assistant nicht möglich", 2: "Anmeldung ungültig",
-      3: "Verbindung zu Home Assistant unterbrochen" }[err] || `Fehler ${err}`;
+    return WS_ERROR_KEY[err] ? t(WS_ERROR_KEY[err]) : t("error.code", { code: err });
   if (typeof err === "object") {
     if (err.message) return String(err.message);
     if (err.error && err.error.message) return String(err.error.message);
-    if (err.code != null) return `Fehler ${err.code}`;
+    if (err.code != null) return t("error.code", { code: err.code });
     try { return JSON.stringify(err); } catch (e) { /* circular */ }
   }
   return String(err);
 }
-// Volume for the consumption summary: liters, switching to m³ above 1000 L.
+// Volume for the consumption summary. Metric: liters, switching to m³ above
+// 1000 L. US customary: gallons (`hass.config.unit_system`, FR-I1 (e)) — stored
+// and computed values stay metric, only this display converts.
 function fmtVol(liters) {
   const v = Number(liters) || 0;
-  if (v >= 1000) return `${(v / 1000).toLocaleString("de-DE", { maximumFractionDigits: 2 })} m³`;
-  return `${Math.round(v)} L`;
+  if (!_fmt.us && v >= 1000)
+    return `${fmtNum(v / 1000, { maximumFractionDigits: 2 })} ${t("unit.cubic_meters")}`;
+  return vol(v);
 }
 // Run duration: seconds below 1 min (so a quickly stopped run isn't shown as 0 min).
 function fmtDur(min) {
   if (min == null) return "—";
   const m = Number(min);
-  if (m < 1) return `${Math.round(m * 60)} s`;
-  return `${Math.round(m * 10) / 10} min`;
+  if (m < 1) return `${fmtNum(Math.round(m * 60))} ${t("unit.seconds")}`;
+  return fmtMinutes(Math.round(m * 10) / 10);
+}
+// Minutes with their unit — used for durations and for the config values in the
+// details overlay (emergency stop, settle time).
+function fmtMinutes(min) {
+  return `${fmtNum(min, { maximumFractionDigits: 1 })} ${t("unit.minutes")}`;
 }
 // Manual-start timer entry: fractional minutes ⇄ editable "m:ss"-or-minutes text.
 // Plain number = minutes (Standardfall); "0:18" = 18 s (Gießkanne füllen).
@@ -893,13 +1082,15 @@ function fmtDurInput(min) {
   return s === 0 ? String(m) : `${m}:${String(s).padStart(2, "0")}`;
 }
 function parseDurInput(str) {
-  const t = String(str == null ? "" : str).trim();
-  if (t === "") return 0;
-  if (t.includes(":")) {
-    const [mm, ss] = t.split(":");
+  // `raw`, not `t` — the module-level t() translator must not be shadowed. The
+  // minutes branch goes through parseNum() so a locale decimal comma works too.
+  const raw = String(str == null ? "" : str).trim();
+  if (raw === "") return 0;
+  if (raw.includes(":")) {
+    const [mm, ss] = raw.split(":");
     return (parseInt(mm, 10) || 0) + (parseInt(ss, 10) || 0) / 60;
   }
-  return parseFloat(t) || 0;
+  return parseNum(raw) || 0;
 }
 function clampPct(p) {
   return Math.max(0, Math.min(100, Number(p) || 0));
@@ -918,13 +1109,13 @@ function fmtNext(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d)) return "—";
-  return d.toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  return fmtDateParts(d, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 function fmtDateTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d)) return "—";
-  return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return fmtDateParts(d, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 function fmtLast(e, omitResult) {
   const when = fmtDateTime(e.start);
@@ -933,11 +1124,11 @@ function fmtLast(e, omitResult) {
   // carried by the yellow Störung marker, not repeated here (CR-0011).
   const parts = [];
   if (e.duration_min != null && e.duration_min > 0) parts.push(fmtDur(e.duration_min));
-  if (e.liters != null) parts.push(`${e.approx ? "~" : ""}${e.liters} L`);
+  if (e.liters != null) parts.push(`${e.approx ? "~" : ""}${vol(e.liters)}`);
   if (parts.length) return `${when} · ${parts.join("/")}`;
   // No watering recorded (instant skip). Show the reason label unless the yellow
   // fault marker already carries it (omitResult).
-  if (!omitResult && e.result && e.result !== "completed") return `${when} · ${RESULT_LABEL[e.result] || e.result}`;
+  if (!omitResult && e.result && e.result !== "completed") return `${when} · ${resultLabel(e.result)}`;
   return when;
 }
 function fmtRemaining(untilIso) {
@@ -1072,9 +1263,12 @@ if (!customElements.get("gardenesp-card")) {
 }
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === "gardenesp-card")) {
+  // English on purpose: the card picker is evaluated at module load, *before* the
+  // element ever sees a `hass` object — there is no language signal here, and
+  // guessing from navigator.language would contradict hass.language (§4c).
   window.customCards.push({
     type: "gardenesp-card",
     name: "GardenESP",
-    description: "Dashboard: Bewässerungslinien, Quellen & Sensoren — Status, Steuerung, Verlauf.",
+    description: "Dashboard: irrigation lines, water sources & sensors — status, control, history.",
   });
 }

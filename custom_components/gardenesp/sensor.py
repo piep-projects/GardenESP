@@ -19,7 +19,13 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, INPUT_SOIL_MOISTURE, SIGNAL_ADD_ENTITIES, SOURCE_CISTERN
+from .const import (
+    DOMAIN,
+    INPUT_SOIL_MOISTURE,
+    LINE_STATUSES,
+    SIGNAL_ADD_ENTITIES,
+    SOURCE_CISTERN,
+)
 from .coordinator import GardenESPCoordinator
 from .entity import GardenESPEntity, box_of_ref, child_device_info
 
@@ -56,6 +62,12 @@ LINE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
         key="status",
         translation_key="status",
         device_class=SensorDeviceClass.ENUM,
+        # ENUM requires the value list; HA rejects a state that is not in it. The
+        # labels live in translations/<lang>.json under
+        # entity.sensor.status.state.* — without them HA shows the raw values in
+        # more-info/history/logbook and the automation editor (i18n concept P0).
+        # Keep in sync with the STATUS_* constants (tests/test_translations.py).
+        options=list(LINE_STATUSES),
     ),
     "next_run": SensorEntityDescription(
         key="next_run",

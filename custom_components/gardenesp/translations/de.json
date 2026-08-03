@@ -15,7 +15,20 @@
       "level": { "name": "Füllstand" },
       "level_pct": { "name": "Füllstand %" },
       "consumption_today": { "name": "Verbrauch heute" },
-      "status": { "name": "Status" },
+      "status": {
+        "name": "Status",
+        "state": {
+          "active": "Aktiv",
+          "idle": "Inaktiv",
+          "waiting": "Wartend",
+          "blocked_sensor": "Gesperrt · Sensor nass",
+          "blocked_level": "Gesperrt · Wasserstand niedrig",
+          "automatic_off": "Automatik aus",
+          "settling": "Nachlauf · Messung",
+          "box_disabled": "Steuergerät deaktiviert",
+          "unreachable": "Nicht erreichbar"
+        }
+      },
       "next_run": { "name": "Nächster Lauf" },
       "last_liters": { "name": "Letzte Menge" },
       "moisture": { "name": "Bodenfeuchte" }
