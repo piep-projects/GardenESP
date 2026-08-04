@@ -1,43 +1,44 @@
-# Automationen & Dienste
+# Automations & services
 
-GardenESP lässt sich aus **Home-Assistant-Automationen** heraus steuern — zwei Wege:
-die **Dienste** `gardenesp.start_line` / `gardenesp.stop_line` (eine Linie sauber starten/
-stoppen) und **Binäreingänge** (Taster/Schalter) als Auslöser.
+GardenESP can be driven from **Home Assistant automations** in two ways: the **services**
+`gardenesp.start_line` / `gardenesp.stop_line` (starting and stopping a line cleanly) and
+**binary inputs** (buttons/switches) as triggers.
 
-## Dienste: `gardenesp.start_line` / `stop_line`
+## Services: `gardenesp.start_line` / `stop_line`
 
-Mit diesen Diensten steuerst du eine Bewässerungslinie aus eigener Logik (z. B. einer
-**ET0-/Wetter-Bewässerung**) — über **denselben Pfad wie Panel und Karte** (Quellen-Sperre,
-Regen-/Pegel-Gates, Verbrauchs-Logging, Zisternen-Nachlauf).
+With these services you drive an irrigation line from your own logic (e.g. an
+**ET0 / weather-based schedule**) — through **the same path as the panel and the card**
+(source lock, rain and level gates, consumption logging, cistern settling time).
 
-!!! tip "Warum nicht den Ventil-`switch` direkt schalten?"
-    Ein direktes `switch.turn_on` am Ventil umgeht **alles** — Quellen-Lock, Sperren,
-    Verbrauchsmessung und Nachlauf. Nur die on-device-Notabschaltung bliebe als Schutz.
-    Die Dienste sind der vorgesehene Weg für externe Steuerung.
+!!! tip "Why not switch the valve `switch` directly?"
+    A plain `switch.turn_on` on the valve bypasses **everything** — the source lock, the
+    blocking sensors, the consumption measurement and the settling time. Only the on-device
+    emergency shutdown would remain as a safeguard. The services are the intended route for
+    external control.
 
 ### `gardenesp.start_line`
 
-| Feld | Pflicht | Bedeutung |
+| Field | Required | Meaning |
 |------|---------|-----------|
-| `line_id` | ja | Die **rohe Linien-ID** (z. B. `ln_ff3a7f58`). Im Panel in der Linien- und Steuerungs-Übersicht als **„ID (für Dienst)"** angezeigt — nicht zu verwechseln mit der Anzeige-ID `L<n>`. |
-| `duration_min` | nein | Laufdauer in Minuten (Nachkommastellen = Sekunden, z. B. `0.5` = 30 s). Leer = manuelle Standarddauer der Linie. |
-| `force` | nein | `true` = **„Start trotzdem"** — übersteuert einen Sperr-Sensor (Regen). Pegel-/Trockenlaufschutz der Quelle bleibt aktiv. |
+| `line_id` | yes | The **raw line id** (e.g. `ln_ff3a7f58`). Shown in the panel's line and control overview as **"ID (for the service)"** — not to be confused with the display id `L<n>`. |
+| `duration_min` | no | Run time in minutes (decimals are seconds, e.g. `0.5` = 30 s). Empty = the line's manual default duration. |
+| `force` | no | `true` = **"start anyway"** — overrides a blocking sensor (rain). The source's level and dry-run protection stay active. |
 
 ### `gardenesp.stop_line`
 
-| Feld | Pflicht | Bedeutung |
+| Field | Required | Meaning |
 |------|---------|-----------|
-| `line_id` | ja | Rohe Linien-ID der zu stoppenden Linie. |
+| `line_id` | yes | The raw line id of the line to stop. |
 
-!!! note "Unbekannte `line_id`"
-    Eine unbekannte ID liefert über die Dienste-Aufrufe (Automation, Entwicklerwerkzeuge →
-    Aktionen) einen sauberen Validierungsfehler.
+!!! note "Unknown `line_id`"
+    An unknown id produces a clean validation error through the service calls (automation,
+    Developer tools → Actions).
 
-### Beispiel: Linie zeitgesteuert mit eigener Dauer starten
+### Example: start a line on a timer with your own duration
 
 ```yaml
 automation:
-  - alias: "Tomaten morgens 6 Minuten"
+  - alias: "Tomatoes, 6 minutes in the morning"
     trigger:
       - platform: time
         at: "06:00:00"
@@ -48,29 +49,28 @@ automation:
           duration_min: 6
 ```
 
-## Binäreingänge als Taster/Schalter
+## Binary inputs as buttons/switches
 
-Jeder Binäreingang eines Steuergeräts ist als normaler **`binary_sensor`** in Home Assistant
-sichtbar (`binary_sensor.gardenesp_steuergeraet_<x>_<name>`) und in jeder Automation als **Auslöser**
-oder Bedingung nutzbar — unabhängig davon, ob GardenESP ihn intern verwendet.
+Every binary input of a controller is visible in Home Assistant as an ordinary
+**`binary_sensor`** (`binary_sensor.gardenesp_steuergeraet_<x>_<name>`) and can be used in any
+automation as a **trigger** or condition — regardless of whether GardenESP uses it internally.
 
-Damit ein Eingang einen **sprechenden Namen** trägt und **nicht** als Sperr-Sensor
-behandelt wird, richte ihn im Steuergerät-Editor als Typ **Taster / Schalter** (`button`) ein
-(siehe [Erstes Steuergerät](erste-box.md)). Der Eingang wird dann als
-schlichter `binary_sensor` geflasht — ohne Bewässerungs-Bedeutung, also auch **nicht** in der
-Sperr-Sensor-Auswahl der Linien.
+So that an input carries a **meaningful name** and is **not** treated as a blocking sensor,
+set it up in the controller editor with the type **Button / switch** (see
+[First controller](erste-box.md)). The input is then flashed as a plain `binary_sensor` —
+with no irrigation meaning, and therefore **not** offered in a line's blocking-sensor list.
 
 !!! info "GardenControl & WROOM"
-    GardenControl hat **3 Binäreingänge** (BIN1–3), die sich Regen, S0-Literzähler und
-    Taster **teilen** — ist einer als Literzähler belegt, steht er nicht mehr als Taster
-    zur Verfügung. Bei ESP32-WROOM nimmst du einen freien GPIO. Die **Polarität** (Ruhe =
-    an/aus) stellst du am Eingang über den Invertieren-Schalter ein.
+    GardenControl has **3 binary inputs** (BIN1–3) that rain, the S0 water meter and buttons
+    **share** — if one is taken by a water meter, it is no longer available as a button. On
+    ESP32-WROOM you take any free GPIO. The **polarity** (idle = on/off) is set on the input
+    with the invert selector.
 
-### Beispiel: Taster startet eine Linie
+### Example: a button starts a line
 
 ```yaml
 automation:
-  - alias: "Taster Terrasse → Rasen 10 min"
+  - alias: "Patio button → lawn for 10 min"
     trigger:
       - platform: state
         entity_id: binary_sensor.gardenesp_steuergeraet_a_taster_terrasse
@@ -82,7 +82,7 @@ automation:
           duration_min: 10
 ```
 
-!!! tip "Bewusste Trennung"
-    GardenESP bietet **keine** eingebaute „Taster → Aktion"-Verknüpfung. Die Logik dahinter
-    lebt in HA-Automationen auf der rohen `binary_sensor`-Entity — flexibler, und ohne die
-    Bewässerungslogik zu duplizieren.
+!!! tip "A deliberate separation"
+    GardenESP offers **no** built-in "button → action" binding. That logic lives in HA
+    automations on the raw `binary_sensor` entity — more flexible, and without duplicating the
+    irrigation logic.

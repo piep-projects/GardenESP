@@ -1,28 +1,28 @@
 # Dashboard
 
-Das Dashboard ist eine Lovelace-Karte:
+The dashboard is a Lovelace card:
 
 ```yaml
 type: custom:gardenesp-card
 ```
 
-Die Karte wird mit der Integration ausgeliefert und automatisch registriert.
+The card ships with the integration and is registered automatically.
 
-## Aufbau
+## Layout
 
-- **Linien** — Name + Status-Badge, „Letzte"/„Nächste", Live-Restzeit-Countdown;
-  rechts ein **▶/■**-Icon (manuell starten/stoppen). Die ganze Zeile öffnet die
-  Detail-Ansicht.
-- **Wasserquellen & Sensoren** — einzeilig, Wert rechtsbündig (Regen `trocken`/`nass`,
-  Zisterne `<L>/<max> L`).
-- **Störungen** — gestörte Läufe erscheinen inline an der „Letzte"-Zeile (gelb).
+- **Lines** — name + status badge, "Last"/"Next", a live remaining-time countdown, and a
+  **▶/■** icon on the right (start/stop manually). Clicking anywhere on the row opens the
+  detail view.
+- **Water sources & sensors** — a single line each, value right-aligned (rain `dry`/`wet`,
+  cistern `<L>/<max> L`).
+- **Faults** — a disturbed run appears inline on the "Last" line (in yellow).
 
-## Reihenfolge
+## Order
 
-Im Panel → Tab **Allgemein** lässt sich einstellen, ob **Wasserquellen** und
-**Sperr-Sensoren** vor oder nach den Linien erscheinen (Steuerungen stehen zuletzt).
+The panel → tab **General** lets you choose whether **water sources** and **blocking
+sensors** appear before or after the lines (controls always come last).
 
-## Detail-Ansicht
+## Detail view
 
-Klick auf eine Zeile öffnet ein Overlay mit Verlauf, Verbrauchssummen und — bei
-Zisternen — dem Füllstands-Verlauf (über den nativen HA-Verlaufsdialog).
+Clicking a row opens an overlay with the history, consumption totals and — for cisterns —
+the fill-level history (via Home Assistant's native history dialog).

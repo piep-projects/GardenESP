@@ -1,98 +1,99 @@
-# Fehlersuche
+# Troubleshooting
 
-## Die Steuergerät-Entitäten fehlen / sind `unavailable`
+## The controller's entities are missing / `unavailable`
 
-- Ist das Steuergerät als **ESPHome-Gerät in HA** eingebunden (nicht nur geflasht)? Siehe
-  [Erstes Steuergerät](erste-box.md).
-- Steuergerät online? In der Hardware-Übersicht steht Online/Offline + Firmware-Stand.
+- Is the controller added as an **ESPHome device in HA** (not merely flashed)? See
+  [First controller](erste-box.md).
+- Is the controller online? The hardware overview shows online/offline plus the firmware state.
 
-## Ausgänge/Eingänge sind nicht zugeordnet
+## Outputs/inputs are not assigned
 
-- Panel → **Allgemein → Entities abgleichen** für das Steuergerät ausführen.
-- Namen müssen **je Steuergerät eindeutig** sein. Umlaute/ß werden ASCII-gefaltet
+- Panel → **General → Match entities** for that controller.
+- Names must be **unique per controller**. Umlauts and ß are folded to ASCII
   (ä→ae, ö→oe, ü→ue, ß→ss).
 
-## „Firmware-Drift"-Warnung
+## "Firmware drift" warning
 
-Die Einstellungen unterscheiden sich von der geflashten Firmware. Das ist **nur eine
-Warnung** — Läufe laufen weiter. Steuergerät neu flashen, um den Drift aufzulösen.
+The settings differ from the flashed firmware. This is **only a warning** — runs keep
+working. Reflash the controller to clear the drift.
 
-## Ein Lauf wird als `emergency` protokolliert
+## A run is logged as `emergency`
 
-Der on-device Emergency-Shutdown hat ausgelöst. Häufigste Ursache: die Laufdauer endet
-zu nah an `emergency_shutdown_min`. Laufzeit auf **≤ emergency_shutdown_min − 1 min**
-reduzieren (das Panel warnt).
+The on-device emergency shutdown fired. The most common cause: the run duration ends too
+close to `emergency_shutdown_min`. Reduce the run time to
+**≤ emergency_shutdown_min − 1 min** (the panel warns about this).
 
-## Zisternen-Füllstand stimmt nicht
+## The cistern level is wrong
 
-[Kalibrierung](quellen.md) prüfen — Stützpunkte und aktuellen Rohwert.
+Check the [calibration](quellen.md) — the support points and the current raw value.
 
-## Der Zisternen-Füllstand zappelt im Ruhezustand
+## The cistern level jitters at rest
 
-Normal — ein Drucksensor rauscht. **Glättung** am Eingang (Tab Hardware) und **Totband** an
-der Quelle machen die Anzeige ruhig; beides ist unter [Wasserquellen](quellen.md#ruhiger-füllstand-glättung-und-totband)
-erklärt.
+That is normal — a pressure sensor is noisy. **Smoothing** on the input (tab Hardware) and a
+**dead band** on the source calm the display down; both are explained under
+[Water sources](quellen.md#steadying-the-level-smoothing-and-dead-band).
 
-## GardenControl: die Pumpe schaltet die falsche Relais-Klemme
+## GardenControl: the pump switches the wrong relay terminal
 
-Auf dem GardenControl-Board sind die beiden Relais-Ausgänge **gekreuzt**: die Schraube mit dem
-Aufdruck **`R1` wird intern von einem anderen Pin getrieben** als der Name der Hersteller-Firmware
-vermuten lässt (vom Hersteller bestätigt — **der Aufdruck gilt**). GardenESP berücksichtigt das
-**ab Version 0.13.73**.
+On the GardenControl board the two relay outputs are **crossed**: the screw terminal printed
+**`R1` is driven internally by a different pin** than the name in the manufacturer's firmware
+suggests (confirmed by the manufacturer — **the printed label is what counts**). GardenESP
+takes this into account **from version 0.13.73**.
 
-**Nach dem Update auf 0.13.73 musst du das Steuergerät neu flashen** — bis dahin schaltet es
-weiterhin die *andere* Schraube. Prüfe nach dem Flash einmal, welche Klemme tatsächlich anzieht:
-schaltet die falsche, steck die Ader auf die andere Relais-Klemme um **oder** stelle den Ausgang
-in den Einstellungen von `R1` auf `R2` (bzw. umgekehrt).
+**After updating to 0.13.73 you have to reflash the controller** — until then it still
+switches the *other* terminal. After the flash, check once which terminal actually pulls in:
+if it is the wrong one, move the wire to the other relay terminal **or** change the output in
+the settings from `R1` to `R2` (or vice versa).
 
-## OTA-Flash schlägt fehl: „Error resolving IP address … Is it connected to WiFi?"
+## OTA flash fails: "Error resolving IP address … Is it connected to WiFi?"
 
-Diese Meldung erscheint, wenn sich der **ESPHome-Gerätename** (der mDNS-Hostname
-`gardenesp-steuergeraet-<Kürzel>`) geändert hat — z. B. weil du das **Kürzel** eines
-Steuergeräts geändert hast. ESPHome will die neue Firmware dann an den **neuen** Namen
-schicken (`…-<neu>.local`), den es im Netz aber noch nicht gibt: Das laufende Steuergerät
-meldet sich ja weiterhin unter dem **bisherigen** Namen. Henne-Ei — der neue Name entsteht
-erst *durch* den Flash.
+This message appears when the **ESPHome device name** (the mDNS hostname
+`gardenesp-steuergeraet-<short code>`) has changed — for example because you changed a
+controller's **short code**. ESPHome then wants to send the new firmware to the **new** name
+(`…-<new>.local`), which does not exist on the network yet: the running controller still
+announces itself under its **previous** name. A chicken-and-egg problem — the new name only
+comes into being *through* the flash.
 
-**Lösung — einmaliger Übergangs-Flash an die aktuelle Adresse:**
+**Solution — a one-off transitional flash to the current address:**
 
-- **Per USB flashen** (umgeht die Namensauflösung komplett), **oder**
-- im YAML vorübergehend unter `wifi:` die noch gültige Adresse vorgeben:
+- **Flash over USB** (which bypasses name resolution entirely), **or**
+- temporarily specify the still-valid address under `wifi:` in the YAML:
 
     ```yaml
     wifi:
       ssid: !secret wifi_ssid
       password: !secret wifi_password
-      use_address: <bisheriger-name>.local   # bisher gültiger Name des Steuergeräts, oder seine feste IP
+      use_address: <previous-name>.local   # the controller's previously valid name, or its fixed IP
       ap:
         ssid: "${friendly_name} Fallback"
         password: !secret wifi_ap_password
     ```
 
-    Dann **Install → Wirelessly**: ESPHome verbindet zur alten Adresse und flasht die Firmware
-    mit dem neuen Namen. Nach dem Neustart ist das Steuergerät unter dem neuen Namen erreichbar →
-    `use_address` wieder **entfernen**.
+    Then **Install → Wirelessly**: ESPHome connects to the old address and flashes the firmware
+    carrying the new name. After the restart the controller is reachable under the new name →
+    **remove** `use_address` again.
 
-Weil sich der mDNS-Name geändert hat, taucht das Steuergerät in HA unter **Entdeckt** ggf. als „neues"
-Gerät auf → einmal [neu einbinden](esphome.md); den alten Geräte-Eintrag kannst du danach
-entfernen. Deine Einstellungen, Linien und Verläufe bleiben erhalten (sie hängen nicht am
-Gerätenamen).
+Because the mDNS name has changed, the controller may show up in HA under **Discovered** as a
+"new" device → [add it again](esphome.md) once; you can remove the old device entry
+afterwards. Your settings, lines and history are preserved (they do not hang off the device
+name).
 
-## „Invalid encryption key" beim Einbinden (obwohl der Schlüssel stimmt)
+## "Invalid encryption key" when adding the device (even though the key is correct)
 
-Meldung à la `Invalid encryption key: received_name=gardenesp-steuergeraet-a, received_mac=…`.
-Zuerst der Normalfall: Der eingegebene Schlüssel muss **exakt** dem entsprechen, mit dem das
-Gerät geflasht wurde (`api_encryption_key` aus der ESPHome-`secrets.yaml` **zum Flash-Zeitpunkt**).
-Hast du den Schlüssel danach geändert → neu flashen und denselben Wert eingeben.
+A message like `Invalid encryption key: received_name=gardenesp-steuergeraet-a, received_mac=…`.
+First the ordinary case: the key you enter must match **exactly** the one the device was
+flashed with (`api_encryption_key` from the ESPHome `secrets.yaml` **at the time of the
+flash**). If you changed the key afterwards → reflash and enter the same value.
 
-**Häufige Falle bei mehreren Instanzen:** Prüfe die **IP/den `received_mac`** in der Meldung. Passt
-die IP **nicht** zu deinem Gerät, hat HA sich zu einem **anderen** Gerät mit **demselben
-Namen** verbunden (mDNS-Kollision — zwei Steuergeräte mit gleichem Kürzel im selben Netz, siehe
-[Erstes Steuergerät](erste-box.md)). Dann ist nicht der Schlüssel falsch, sondern das Ziel: Gib den
-Steuergeräten **unterschiedliche Kürzel** (netzwerkweit eindeutig) und flashe neu — oder binde das
-Gerät vorübergehend **über seine feste IP** ein (Integration hinzufügen → ESPHome → Host = IP).
+**A common trap with several instances:** check the **IP / the `received_mac`** in the
+message. If the IP does **not** match your device, HA has connected to a **different** device
+with **the same name** (an mDNS collision — two controllers with the same short code on the
+same network, see [First controller](erste-box.md)). Then it is not the key that is wrong but
+the target: give the controllers **different short codes** (unique across the network) and
+reflash — or add the device temporarily **via its fixed IP** (Add integration → ESPHome →
+host = IP).
 
-## Weiter Hilfe
+## Further help
 
-Bitte ein [Issue](https://github.com/piep-projects/GardenESP/issues) öffnen — mit
-HA-Version, GardenESP-Version und (wenn möglich) den relevanten Log-Ausschnitten.
+Please open an [issue](https://github.com/piep-projects/GardenESP/issues) — with your HA
+version, your GardenESP version and (if possible) the relevant log excerpts.

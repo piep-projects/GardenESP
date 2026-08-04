@@ -1,107 +1,108 @@
-# Erstes Steuergerät & erster Flash
+# First controller & first flash
 
-Ein **Steuergerät** ist ein ESP-Controller, der die Ventile schaltet und Sensoren liest.
-Dieser Ablauf führt von der leeren Installation zum ersten lauffähigen Steuergerät.
+A **controller** is an ESP board that switches the valves and reads the sensors. This
+walk-through takes you from an empty installation to your first working controller.
 
-!!! info "Reihenfolge"
-    GardenESP **generiert** die ESPHome-Firmware aus deinen Einstellungen. Du legst das
-    Steuergerät also zuerst im Panel an, flasht es dann und bindest es zuletzt als
-    ESPHome-Gerät in HA ein.
+!!! info "The order matters"
+    GardenESP **generates** the ESPHome firmware from your settings. So you create the
+    controller in the panel first, then flash it, and only then add it to HA as an ESPHome
+    device.
 
-## Überblick der Schritte
+## The steps at a glance
 
-1. Steuergerät anlegen (Panel)
-2. Ausgänge & Eingänge definieren
-3. ESPHome-YAML generieren & flashen
-4. Steuergerät in Home Assistant einbinden
-5. Entitäten abgleichen
-6. Erste Linie anlegen
+1. Create the controller (panel)
+2. Define outputs & inputs
+3. Generate the ESPHome YAML & flash it
+4. Add the controller to Home Assistant
+5. Match the entities
+6. Create your first line
 
-## 1. Steuergerät anlegen
+## 1. Create the controller
 
-GardenESP-Panel (Seitenleiste) → Tab **Hardware** → **+ Neu**:
+GardenESP panel (sidebar) → tab **Hardware** → **+ New**:
 
-| Feld | Bedeutung |
+| Field | Meaning |
 |------|-----------|
-| **Kürzel** | Kurzes Label (z. B. `A`). Erscheint als Chip vor Linien/Ausgängen und prägt den Entity-Präfix `gardenesp_steuergeraet_a_*`. |
-| **Name** | Beschreibender Name des Steuergeräts. |
-| **Hardware-Typ** | *GardenControl* (festes Pin-Profil) oder *ESP32-WROOM* / eigene generische Plattform (freie GPIO). Siehe [Hardware](hardware.md). |
-| **In Betrieb** | Schalter; ein deaktiviertes Steuergerät ist voll außer Betrieb (kein Plan, kein manueller Start). |
+| **Short code** | A short label (e.g. `A`). It appears as a chip in front of lines and outputs and shapes the entity prefix `gardenesp_steuergeraet_a_*`. |
+| **Name** | A descriptive name for the controller. |
+| **Platform** | *GardenControl* (fixed pin profile) or *ESP32-WROOM* / your own generic platform (free GPIO). See [Hardware](hardware.md). |
+| **Enabled** | A toggle; a disabled controller is fully out of service (no schedule, no manual start). |
 
-!!! warning "Kürzel netzwerkweit eindeutig halten"
-    Der ESPHome-Gerätename leitet sich aus dem Kürzel ab (`gardenesp-steuergeraet-<Kürzel>`).
-    Innerhalb einer HA-Instanz vergibt das Panel automatisch freie Kürzel. Betreibst du
-    aber **mehrere GardenESP-Instanzen im selben Netzwerk** (z. B. Test + Produktiv), dürfen
-    sich deren Kürzel **nicht überschneiden** — sonst tragen zwei Geräte denselben mDNS-Namen,
-    und HA verbindet sich zum falschen (Symptom: *„Invalid encryption key"* trotz korrektem
-    Schlüssel, weil das andere Gerät antwortet). Gib solchen Steuergeräten unterschiedliche
-    Kürzel (z. B. Produktiv `A`, Test `T`).
+!!! warning "Keep the short code unique across your network"
+    The ESPHome device name is derived from the short code
+    (`gardenesp-steuergeraet-<short code>`). Within one HA instance the panel assigns free
+    short codes automatically. But if you run **several GardenESP instances on the same
+    network** (for example test + production), their short codes must **not** overlap —
+    otherwise two devices carry the same mDNS name and HA connects to the wrong one (symptom:
+    *"Invalid encryption key"* despite a correct key, because the other device answered).
+    Give such controllers different short codes (e.g. production `A`, test `T`).
 
-## 2. Ausgänge & Eingänge definieren
+## 2. Define outputs & inputs
 
-**Ausgänge** (`outputs`) = was geschaltet wird:
+**Outputs** = what gets switched:
 
-- **Ventil** (`valve`) — ein Magnetventil = später eine Bewässerungslinie.
-- **Pumpe** (`pump`) — z. B. Zisternenpumpe; kann einem Ventil als *verbundenes Gerät* zugeordnet werden (läuft mit).
-- **Sonstiges** (`other`) — generischer Schaltausgang für [Steuerungen](linien.md#steuerungen) (Springbrunnen, Kamera …).
+- **Valve** (`valve`) — one solenoid valve, which later becomes an irrigation line.
+- **Pump** (`pump`) — e.g. a cistern pump; it can be attached to a valve as a *connected
+  device* (running alongside it).
+- **Other** (`other`) — a generic switched output for [controls](linien.md#controls)
+  (a fountain, a camera …).
 
-Pro Ausgang setzt du die **Not-Aus-Zeit** (`emergency_shutdown_min`) — die on-device-
-Sicherheitsabschaltung (siehe [Linien](linien.md)). Bei GardenControl wählst du den
-Kanal (CH1–12 / R1–R2) aus einer Liste; bei WROOM den **GPIO**.
+For every output you set the **emergency shutdown time** (`emergency_shutdown_min`) — the
+on-device safety cut-off (see [Lines](linien.md)). On GardenControl you pick the channel
+(CH1–12 / R1–R2) from a list; on WROOM you pick the **GPIO**.
 
-**Eingänge** (`inputs`) = was gelesen wird:
+**Inputs** = what gets read:
 
-- **Regen-/Bodensensor** (Sperr-Sensor) — blockiert die Automatik bei Nässe.
-- **Füllstand** (`level`) — Drucksensor der Zisterne (Rohwert → Liter per [Kalibrierung](quellen.md)).
-- **Literzähler** (`meter`) — Pulszähler für Festwasser.
-- **Taster / Schalter** (`button`) — ein generischer Binäreingang ohne Bewässerungs-
-  Bedeutung; wird als normaler `binary_sensor` in HA sichtbar und lässt sich in
-  [Automationen](automationen.md) frei verwenden (z. B. ein Taster startet eine Linie).
+- **Rain / soil sensor** (blocking sensor) — blocks the automatic schedule while wet.
+- **Pressure sensor** — the cistern's level sensor (raw value → litres via
+  [calibration](quellen.md)).
+- **Water meter** — a pulse counter for mains water.
+- **Button / switch** — a generic binary input with no irrigation meaning; it shows up as an
+  ordinary `binary_sensor` in HA and can be used freely in
+  [automations](automationen.md) (a button starting a line, for instance).
 
-!!! tip "Verdrahtung prüfen"
-    In der Hardware-Übersicht öffnet **🔌 Verdrahtung** ein Pinout-Schaltbild, das zeigt,
-    welcher Ausgang/Eingang auf welchem Pin liegt — hilfreich vor dem Anschließen.
+!!! tip "Check the wiring"
+    In the hardware overview, **🔌 Wiring** opens a pinout diagram showing which output or
+    input sits on which pin — handy before you connect anything.
 
-## 3. ESPHome-YAML generieren & flashen
+## 3. Generate the ESPHome YAML & flash it
 
-In der Hardware-Übersicht zeigt **🔒 YAML** die generierte ESPHome-Konfiguration (Admin).
-Diese übernimmst du in ESPHome, ergänzt einmalig deine **Secrets** (WLAN, API-Schlüssel,
-OTA) und **flashst** das Steuergerät — beim ersten Mal per USB, danach drahtlos.
+In the hardware overview, **🔒 YAML** shows the generated ESPHome configuration (admin only).
+You take that over into ESPHome, add your **secrets** once (Wi-Fi, API key, OTA) and **flash**
+the controller — over USB the first time, wirelessly after that.
 
-➡️ **Schritt für Schritt (einsteigerfreundlich):** [ESPHome: Secrets, Flashen & Einbinden](esphome.md)
+➡️ **Step by step (beginner-friendly):** [ESPHome: secrets, flashing & adding to HA](esphome.md)
 
-!!! note "Firmware-Drift"
-    Das generierte YAML trägt einen Konfig-Hash. Ändert sich die Steuergerät-Konfiguration
-    nach dem Flashen, zeigt GardenESP eine **Drift-Warnung** (Banner/Chip) — Läufe
-    laufen weiter, ein Reflash löst die Warnung. Siehe [Fehlersuche](fehlersuche.md).
+!!! note "Firmware drift"
+    The generated YAML carries a configuration hash. If the controller's configuration
+    changes after flashing, GardenESP shows a **drift warning** (banner/chip) — runs keep
+    working, and a reflash clears the warning. See [Troubleshooting](fehlersuche.md).
 
-## 4. Steuergerät in Home Assistant einbinden
+## 4. Add the controller to Home Assistant
 
-Nach dem Flashen **entdeckt HA das Steuergerät automatisch** (Einstellungen → Geräte & Dienste);
-beim Einrichten gibst du den **API-Verschlüsselungsschlüssel** aus deinen Secrets ein.
-Danach existieren die `switch.*`/`sensor.*`-Entitäten des Steuergeräts. Ausführlich in der
-[ESPHome-Anleitung](esphome.md).
+After flashing, **HA discovers the controller automatically** (Settings → Devices & services);
+during setup you enter the **API encryption key** from your secrets. From then on the
+controller's `switch.*` and `sensor.*` entities exist. In detail in the
+[ESPHome guide](esphome.md).
 
-!!! warning "Flashen ≠ Einbinden"
-    Ein geflashtes Steuergerät ist erst nutzbar, wenn es auch als **ESPHome-Gerät in HA**
-    hinzugefügt wurde. Erst dann gibt es die Schalt- und Sensor-Entitäten, die
-    GardenESP ansteuert.
+!!! warning "Flashing ≠ adding"
+    A flashed controller only becomes usable once it has also been added as an **ESPHome
+    device in HA**. Only then do the switch and sensor entities exist that GardenESP drives.
 
-## 5. Entitäten abgleichen
+## 5. Match the entities
 
-GardenESP löst die echten Entity-IDs des Steuergeräts automatisch über die HA-Registry auf und
-heilt sich nach einem Flash selbst. Falls doch etwas nicht zugeordnet ist (`—` statt
-einer Entity):
+GardenESP resolves the controller's real entity ids automatically against the HA registry and
+heals itself after a flash. If something is still unassigned (`—` instead of an entity):
 
-- Tab **Allgemein** → **Entities abgleichen** für das Steuergerät.
+- Tab **General** → **Match entities** for that controller.
 
-Voraussetzung: Ausgangs-/Eingangs-**Namen sind je Steuergerät eindeutig**. Umlaute/ß werden
-ASCII-gefaltet (ä→ae, ö→oe, ü→ue, ß→ss).
+Prerequisite: output and input **names are unique per controller**. Umlauts and ß are folded
+to ASCII (ä→ae, ö→oe, ü→ue, ß→ss).
 
-## 6. Erste Linie anlegen
+## 6. Create your first line
 
-Jetzt steht die Hardware. Weiter mit:
+The hardware is in place. Carry on with:
 
-- [Linien & Zeitpläne](linien.md) — Ventil → Linie, Zeitplan, manueller Start
-- [Wasserquellen](quellen.md) — Zisterne kalibrieren / Festwasser
-- [Dashboard](dashboard.md) — die Lovelace-Karte einrichten
+- [Lines & schedules](linien.md) — valve → line, schedule, manual start
+- [Water sources](quellen.md) — calibrate a cistern / set up mains water
+- [Dashboard](dashboard.md) — set up the Lovelace card

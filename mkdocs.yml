@@ -1,5 +1,5 @@
 site_name: GardenESP
-site_description: Home-Assistant-Bewässerungssteuerung auf ESPHome-ESP32-Hardware
+site_description: Home Assistant irrigation control on ESPHome ESP32 hardware
 site_url: https://piep-projects.github.io/GardenESP/
 repo_url: https://github.com/piep-projects/GardenESP
 repo_name: piep-projects/GardenESP
@@ -8,7 +8,6 @@ copyright: MIT © piep-projects
 
 theme:
   name: material
-  language: de
   icon:
     logo: material/sprout
   palette:
@@ -16,17 +15,59 @@ theme:
       primary: green
       toggle:
         icon: material/weather-night
-        name: Dunkles Design
+        name: Switch to dark mode
     - scheme: slate
       primary: green
       toggle:
         icon: material/weather-sunny
-        name: Helles Design
+        name: Switch to light mode
   features:
     - navigation.sections
     - navigation.top
     - content.code.copy
     - search.suggest
+
+# English is the base language and lives at the site root; German is a full
+# translation under /de/. The page *files* pair up by suffix: `linien.md` (en)
+# next to `linien.de.md` (de). Keeping the German file names means every
+# in-page link (`[Hardware](hardware.md)`) resolves in both languages, and the
+# URLs that shipped versions of the integration link to keep working.
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+          site_description: Home-Assistant-Bewässerungssteuerung auf ESPHome-ESP32-Hardware
+          nav_translations:
+            Start: Start
+            Getting started: Einstieg
+            Installation: Installation
+            First controller & flash: Erstes Steuergerät & Flash
+            ESPHome flashing & setup: ESPHome flashen & einbinden
+            Hardware: Hardware
+            Using GardenESP: Bedienung
+            Lines & schedules: Linien & Zeitpläne
+            Water sources: Wasserquellen
+            Dashboard: Dashboard
+            Automations & services: Automationen & Dienste
+            Help: Hilfe
+            Troubleshooting: Fehlersuche
+
+# Make `mkdocs build --strict` actually catch dead cross-page anchors. Without
+# this they are only INFO — which is how a German link with umlauts
+# (`#ruhiger-füllstand-…`) stayed broken unnoticed: the slug strips diacritics.
+validation:
+  links:
+    anchors: warn
 
 markdown_extensions:
   - admonition
@@ -40,15 +81,15 @@ markdown_extensions:
 
 nav:
   - Start: index.md
-  - Einstieg:
+  - Getting started:
       - Installation: installation.md
-      - Erstes Steuergerät & Flash: erste-box.md
-      - ESPHome flashen & einbinden: esphome.md
+      - First controller & flash: erste-box.md
+      - ESPHome flashing & setup: esphome.md
       - Hardware: hardware.md
-  - Bedienung:
-      - Linien & Zeitpläne: linien.md
-      - Wasserquellen: quellen.md
+  - Using GardenESP:
+      - Lines & schedules: linien.md
+      - Water sources: quellen.md
       - Dashboard: dashboard.md
-      - Automationen & Dienste: automationen.md
-  - Hilfe:
-      - Fehlersuche: fehlersuche.md
+      - Automations & services: automationen.md
+  - Help:
+      - Troubleshooting: fehlersuche.md

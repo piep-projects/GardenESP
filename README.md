@@ -4,81 +4,86 @@
 [![release][release-badge]][release-url]
 [![validate][validate-badge]][validate-url]
 
-**Home-Assistant-Integration zur Gartenbewässerung** auf Basis von **ESPHome**-ESP32-Hardware —
-mit eigenem Seitenleisten-Panel und Dashboard-Karte. Mehrere Bewässerungslinien (je ein
-Magnetventil), Wasserquellen (Zisterne mit Füllstand oder Festwasser mit Literzähler), Zeitpläne,
-Regen-/Boden-Sperren und ein **on-device Emergency-Shutdown** als Sicherheitsabschaltung.
+**Home Assistant integration for garden irrigation** on **ESPHome**-based ESP32 hardware —
+with its own sidebar panel and a dashboard card. Multiple irrigation lines (one solenoid valve
+each), water sources (a cistern with a level sensor, or mains water with a meter), schedules,
+rain/soil blocking sensors and an **on-device emergency shutdown** as a safety cut-off.
 
-> 📖 Ausführliche Doku (optional): **[piep-projects.github.io/GardenESP][docs-url]**
+The interface follows your Home Assistant language — **English and German** are both fully
+supported.
+
+> 📖 Full documentation: **[piep-projects.github.io/GardenESP][docs-url]**
+> · 🇩🇪 [Deutsche Fassung][docs-url-de]
 
 ---
 
-## Schnellstart
+## Quick start
 
-Vom leeren HA zur ersten laufenden Linie — die sechs Schritte im Überblick.
+From an empty HA to your first running line — the six steps at a glance.
 
-### 1 · Integration installieren
+### 1 · Install the integration
 
-**HACS** (empfohlen): HACS → **⋮ → Benutzerdefinierte Repositories** → `piep-projects/GardenESP`,
-Kategorie **Integration** → installieren → **Home Assistant neu starten**.
+**HACS** (recommended): HACS → **⋮ → Custom repositories** → `piep-projects/GardenESP`,
+category **Integration** → install → **restart Home Assistant**.
 
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=piep-projects&repository=GardenESP&category=integration)
 
-> _Alternativ manuell:_ `custom_components/gardenesp/` nach `config/custom_components/` kopieren und HA neu starten.
+> _Or manually:_ copy `custom_components/gardenesp/` into `config/custom_components/` and restart HA.
 
-### 2 · Integration hinzufügen
+### 2 · Add the integration
 
-**Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**.
-Danach erscheint **GardenESP** in der Seitenleiste (Panel) und die Karte `custom:gardenesp-card` steht bereit.
+**Settings → Devices & services → Add integration → GardenESP**.
+**GardenESP** then appears in the sidebar (the panel) and the card `custom:gardenesp-card` is ready.
 
-### 3 · Erstes Steuergerät anlegen
+### 3 · Create your first controller
 
-Panel → Tab **Hardware** → **+ Neu**: Kürzel + Name, **Hardware-Typ** wählen (*GardenControl* oder
-*ESP32-WROOM*), dann **Ausgänge** (Ventile/Pumpen) und **Eingänge** (Regen-/Bodensensor, Füllstand,
-Literzähler) anlegen. Pro Ventil eine sinnvolle **Not-Aus-Zeit** setzen.
+Panel → tab **Hardware** → **+ New**: short code + name, pick the **platform** (*GardenControl* or
+*ESP32-WROOM*), then add **outputs** (valves/pumps) and **inputs** (rain/soil sensor, level sensor,
+water meter). Set a sensible **emergency shutdown time** per valve.
 
-### 4 · Firmware flashen
+### 4 · Flash the firmware
 
-Hardware-Übersicht → **🔒 YAML** zeigt die generierte ESPHome-Konfiguration. In **ESPHome** übernehmen,
-um deine `secrets` (WLAN, API-Key) ergänzen und das Steuergerät flashen (erst USB, später OTA).
+Hardware overview → **🔒 YAML** shows the generated ESPHome configuration. Take it over into
+**ESPHome**, add your `secrets` (Wi-Fi, API key) and flash the controller (USB first, OTA later).
 
-### 5 · Steuergerät in Home Assistant einbinden
+### 5 · Add the controller to Home Assistant
 
-ESPHome meldet das geflashte Steuergerät → **Einstellungen → Geräte & Dienste** richtet es ein (API-Key aus
-den ESPHome-Secrets). Erst danach existieren die `switch.*`/`sensor.*`-Entitäten.
+ESPHome announces the flashed controller → **Settings → Devices & services** sets it up (API key from
+your ESPHome secrets). Only after that do the `switch.*` / `sensor.*` entities exist.
 
-> ⚠️ **Flashen ≠ Einbinden** — ein geflashtes Steuergerät ist erst nutzbar, wenn es auch als ESPHome-Gerät in
-> HA hinzugefügt wurde. Sind Aus-/Eingänge nicht zugeordnet: Panel → **Allgemein → Entities abgleichen**.
+> ⚠️ **Flashing ≠ adding** — a flashed controller only becomes usable once it has also been added as
+> an ESPHome device in HA. If outputs/inputs stay unassigned: panel → **General → Match entities**.
 
-### 6 · Linie anlegen → fertig
+### 6 · Create a line → done
 
-Panel → Tab **Linien** → **+ Neu**: Ventil + Quelle wählen, optional Sperr-Sensor und Zeitplan.
-Im **Dashboard** startest du Linien manuell (▶) und siehst Status, Restzeit und Verbrauch.
+Panel → tab **Lines** → **+ New**: pick the valve and the source, optionally a blocking sensor and a
+schedule. On the **dashboard** you start lines manually (▶) and see status, remaining time and
+consumption.
 
-✅ Das war's. Alles Weitere (Kalibrierung, Steuerungen, Topologie/Verdrahtung, Fehlersuche) steht in der Doku.
+✅ That's it. Everything else (calibration, controls, topology/wiring, troubleshooting) is in the docs.
 
 ---
 
-## Voraussetzungen
+## Requirements
 
-- Home Assistant **2024.6.0+** (Brand-Icon ab **2026.3**), [ESPHome](https://esphome.io/) zum Flashen
-- Ein unterstütztes ESP32-Steuergerät → [Hardware][docs-hardware] (Smart-MF GardenControl oder ESP32-WROOM)
+- Home Assistant **2024.6.0+** (brand icon from **2026.3**), [ESPHome](https://esphome.io/) for flashing
+- A supported ESP32 controller → [Hardware][docs-hardware] (Smart-MF GardenControl or ESP32-WROOM)
 
-## Mehr erfahren (optional)
+## Learn more (optional)
 
-| Thema | |
+| Topic | |
 |---|---|
-| [Erstes Steuergerät & Flash][docs-firstbox] | Ausführlich, mit Feld-Tabellen |
-| [Linien & Zeitpläne][docs-lines] · [Wasserquellen][docs-sources] · [Dashboard][docs-dash] | Bedienung |
-| [Hardware][docs-hardware] · [Fehlersuche][docs-trouble] | Referenz & Hilfe |
+| [First controller & flash][docs-firstbox] | In detail, with field tables |
+| [Lines & schedules][docs-lines] · [Water sources][docs-sources] · [Dashboard][docs-dash] | Using GardenESP |
+| [Hardware][docs-hardware] · [Troubleshooting][docs-trouble] | Reference & help |
 
-In der App führt der **„? Hilfe"-Link** (Panel-Kopfzeile) direkt in diese Doku.
+Inside the app, the **"? Help"** link (panel header) leads straight into these docs.
 
-## Mitwirken / Support
+## Contributing / support
 
-Fehler & Wünsche bitte als [Issue][issues-url]. Pull Requests willkommen.
+Please report bugs and ideas as an [issue][issues-url]. Pull requests are welcome.
 
-## Lizenz
+## License
 
 MIT © piep-projects
 
@@ -90,6 +95,7 @@ MIT © piep-projects
 [validate-badge]: https://github.com/piep-projects/GardenESP/actions/workflows/validate.yml/badge.svg
 [validate-url]: https://github.com/piep-projects/GardenESP/actions/workflows/validate.yml
 [docs-url]: https://piep-projects.github.io/GardenESP/
+[docs-url-de]: https://piep-projects.github.io/GardenESP/de/
 [docs-firstbox]: https://piep-projects.github.io/GardenESP/erste-box/
 [docs-lines]: https://piep-projects.github.io/GardenESP/linien/
 [docs-sources]: https://piep-projects.github.io/GardenESP/quellen/

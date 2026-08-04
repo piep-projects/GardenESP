@@ -1,28 +1,28 @@
 # Installation
 
-## Voraussetzungen
+## Requirements
 
-- Home Assistant **2024.6.0** oder neuer
-- [ESPHome](https://esphome.io/) (Add-on oder CLI) zum Flashen des Steuergeräts
-- Ein unterstütztes ESP32-Steuergerät → siehe [Hardware](hardware.md)
+- Home Assistant **2024.6.0** or newer
+- [ESPHome](https://esphome.io/) (add-on or CLI) to flash the controller
+- A supported ESP32 controller → see [Hardware](hardware.md)
 
-## Über HACS (empfohlen)
+## Via HACS (recommended)
 
-1. In HACS → **Integrationen** → ⋮-Menü → **Benutzerdefinierte Repositories**.
-2. Repository `piep-projects/GardenESP` mit Kategorie **Integration** hinzufügen.
-3. **GardenESP** installieren und Home Assistant neu starten.
-4. **Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**.
+1. In HACS → **Integrations** → ⋮ menu → **Custom repositories**.
+2. Add the repository `piep-projects/GardenESP` with category **Integration**.
+3. Install **GardenESP** and restart Home Assistant.
+4. **Settings → Devices & services → Add integration → GardenESP**.
 
-Nach dem Hinzufügen erscheint **GardenESP** in der Seitenleiste (Panel) und die
-Dashboard-Karte `custom:gardenesp-card` steht bereit.
+Once added, **GardenESP** appears in the sidebar (the panel) and the dashboard card
+`custom:gardenesp-card` becomes available.
 
-## Manuell
+## Manually
 
-1. Den Ordner `custom_components/gardenesp/` aus diesem Repository nach
-   `config/custom_components/` deiner HA-Installation kopieren.
-2. Home Assistant neu starten.
-3. Integration wie oben hinzufügen.
+1. Copy the folder `custom_components/gardenesp/` from this repository into
+   `config/custom_components/` of your HA installation.
+2. Restart Home Assistant.
+3. Add the integration as described above.
 
-## Nächster Schritt
+## Next step
 
-➡️ [Erstes Steuergerät & Flash](erste-box.md)
+➡️ [First controller & flash](erste-box.md)

@@ -1,9 +1,12 @@
 # GardenESP
 
-Home-Assistant-Integration mit Panel zur Gartenbewässerung auf ESPHome-ESP32-Hardware:
-Bewässerungslinien, Wasserquellen (Zisterne/Festwasser), Zeitpläne, Regen-/Boden-Sperren
-und on-device Emergency-Shutdown.
+Home Assistant integration with a sidebar panel for garden irrigation on ESPHome ESP32
+hardware: irrigation lines, water sources (cistern / mains water), schedules, rain and soil
+blocking sensors, and an on-device emergency shutdown.
 
-📖 Vollständige Doku: https://piep-projects.github.io/GardenESP/
+The interface follows your Home Assistant language — English and German are both supported.
 
-Nach der Installation: **Einstellungen → Geräte & Dienste → Integration hinzufügen → GardenESP**.
+📖 Full documentation: https://piep-projects.github.io/GardenESP/
+🇩🇪 Deutsche Fassung: https://piep-projects.github.io/GardenESP/de/
+
+After installing: **Settings → Devices & services → Add integration → GardenESP**.

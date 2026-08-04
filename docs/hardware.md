@@ -1,26 +1,26 @@
 # Hardware
 
-GardenESP unterstützt pro Steuergerät zwei Plattformen, gewählt über `hw_type`. Der Typ bestimmt
-das ESPHome-YAML-Template.
+GardenESP supports two platforms per controller, selected via `hw_type`. The type
+determines which ESPHome YAML template is used.
 
 ## Smart-MF GardenControl
 
-ESP32 + MCP23017-I/O-Expander, 12× 24-VAC-Magnetventil-Ausgänge, 2× 230-V-Relais
-(Pumpen), PCF8575-Status-LEDs, ADS1115 (4-20-mA-Eingänge). Board-genaues, festes Template.
+ESP32 + MCP23017 I/O expander, 12× 24 VAC solenoid valve outputs, 2× 230 V relays
+(pumps), PCF8575 status LEDs, ADS1115 (4-20 mA inputs). A fixed, board-accurate template.
 
-## ESP32-WROOM (Eigenbau)
+## ESP32-WROOM (self-built)
 
-Direkte GPIO (~8 Kanäle), Relais optional integriert, keine LEDs. Pins werden im
-Steuergerät-Editor frei je Ausgang/Eingang vergeben.
+Direct GPIO (~8 channels), relays optionally integrated, no LEDs. Pins are assigned
+freely per output/input in the controller editor.
 
-## Sensorik
+## Sensors
 
-- **Zisternen-Füllstand** — Drucksensor (4-20 mA via ADS1115 **oder** analog),
-  Umrechnung roh → Liter über eine [Stützpunkt-Kalibrierung](quellen.md).
-  Der Sensortyp ist **nicht** an `hw_type` gebunden.
-- **Festwasser** — Literzähler (Pulszähler).
-- **Sperr-Sensoren** — Regen (z. B. RainClik) oder Bodenfeuchte als Steuergerät-Eingang.
+- **Cistern fill level** — pressure sensor (4-20 mA via ADS1115 **or** analog), converted
+  from raw to litres by a [support-point calibration](quellen.md).
+  The sensor type is **not** tied to `hw_type`.
+- **Mains water** — water meter (pulse counter).
+- **Blocking sensors** — rain (e.g. RainClik) or soil moisture, as a controller input.
 
-!!! tip "Verdrahtung"
-    Das Panel bietet je Steuergerät eine read-only **Verdrahtungs-Lens** (Pinout-Schaltbild),
-    die zeigt, welche Ausgänge/Eingänge auf welchen Pins liegen.
+!!! tip "Wiring"
+    The panel offers a read-only **wiring lens** per controller (a pinout diagram)
+    showing which outputs and inputs sit on which pins.

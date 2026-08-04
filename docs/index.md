@@ -1,26 +1,26 @@
 # GardenESP
 
-**GardenESP** ist eine Home-Assistant-Custom-Integration mit eigenem Seitenleisten-Panel
-zur Steuerung der Gartenbewässerung auf Basis von **ESPHome**-ESP32-Hardware.
+**GardenESP** is a Home Assistant custom integration with its own sidebar panel for
+running your garden irrigation on **ESPHome**-based ESP32 hardware.
 
-## Auf einen Blick
+## At a glance
 
-- **Bewässerungslinien** — je eine Linie = ein Magnetventil, mit Status, Zeitplan und
-  manuellem Start.
-- **Wasserquellen** — Regenwasser-Zisterne (Drucksensor) oder Festwasser (Literzähler),
-  je mit Verbrauchsauswertung.
-- **Hardware** — mehrere ESP-Steuergeräte, gemischt (GardenControl oder ESP32-WROOM).
-- **ESPHome-YAML wird generiert** — passend zur Hardware, direkt aus dem Panel.
-- **Emergency-Shutdown am Gerät** — Sicherheitsabschaltung unabhängig von WLAN/HA.
-- **Automatisierbar** — Linien aus HA-Automationen steuern (Dienste `gardenesp.start_line` /
-  `stop_line`) und Binäreingänge als Taster nutzen. Siehe [Automationen & Dienste](automationen.md).
+- **Irrigation lines** — one line = one solenoid valve, with status, schedule and
+  manual start.
+- **Water sources** — a rainwater cistern (pressure sensor) or mains water (water
+  meter), each with consumption tracking.
+- **Hardware** — several ESP controllers, mixed types (GardenControl or ESP32-WROOM).
+- **ESPHome YAML is generated** — matching your hardware, straight from the panel.
+- **On-device emergency shutdown** — a safety cut-off that works without Wi-Fi or HA.
+- **Automatable** — drive lines from HA automations (services `gardenesp.start_line` /
+  `stop_line`) and use binary inputs as buttons. See [Automations & services](automationen.md).
 
-## Loslegen
+## Getting started
 
-1. [Installation](installation.md) — über HACS oder manuell
-2. [Erstes Steuergerät & Flash](erste-box.md) — Steuergerät anlegen, YAML generieren, flashen, einbinden
-3. [Hardware](hardware.md) — welches Board passt
+1. [Installation](installation.md) — via HACS or manually
+2. [First controller & flash](erste-box.md) — create a controller, generate the YAML, flash it, add it to HA
+3. [Hardware](hardware.md) — which board fits
 
-!!! note "Feedback willkommen"
-    Fehlt etwas oder ist eine Stelle unklar? Bitte ein
-    [Issue](https://github.com/piep-projects/GardenESP/issues) öffnen.
+!!! note "Feedback welcome"
+    Something missing or unclear? Please open an
+    [issue](https://github.com/piep-projects/GardenESP/issues).
