@@ -84,7 +84,13 @@ const REPEATS = ["daily", "weekly", "monthly"];
 const ICON = "mdi:sprout"; // shared with sidebar + card (const.py PANEL_ICON)
 // Online help (GitHub Pages). The docs site is the single source of truth — the
 // panel only links there (header „? Help" + onboarding) instead of duplicating it.
-const DOCS_URL = "https://piep-projects.github.io/GardenESP/";
+// The site serves English at the root and German under /de/ (FR-I1 §10), so the
+// help links follow the UI language. Anything that is not German gets English:
+// the site has no other translation, and English is the base everywhere.
+const DOCS_BASE = "https://piep-projects.github.io/GardenESP/";
+function docsUrl(path = "") {
+  return `${DOCS_BASE}${(_i18n.lang || I18N_BASE_LANG) === "de" ? "de/" : ""}${path}`;
+}
 
 const TAB_IDS = ["lines", "controls", "sources", "boxes", "topology", "general"];
 // Wiring-lens vocabularies (FR-I1 §4a): the code keeps the keys, the catalogs the
@@ -658,14 +664,14 @@ class GardenEspPanel extends HTMLElement {
     return `<div class="head"><h1><ha-icon icon="${ICON}"></ha-icon> ${APP_NAME}</h1>
       <div class="headbtns">
         <button class="btn onbrand" data-act="back" title="${esc(t("panel.head.dashboard_title"))}">${esc(t("panel.head.dashboard"))}</button>
-        <a class="btn onbrand" href="${DOCS_URL}" target="_blank" rel="noopener" title="${esc(t("panel.head.help_title"))}">${esc(t("panel.head.help"))}</a>
+        <a class="btn onbrand" href="${esc(docsUrl())}" target="_blank" rel="noopener" title="${esc(t("panel.head.help_title"))}">${esc(t("panel.head.help"))}</a>
       </div></div>
       <nav class="tabs">${tabs}${this._fwBanner()}</nav>`;
   }
 
   // Link to a page of the online docs, styled as a button (opens in a new tab).
   _docsBtn(path, label, cls = "ghost") {
-    return `<a class="btn ${cls}" href="${DOCS_URL}${path}" target="_blank" rel="noopener">${esc(label)}</a>`;
+    return `<a class="btn ${cls}" href="${esc(docsUrl(path))}" target="_blank" rel="noopener">${esc(label)}</a>`;
   }
 
   // --- list views (settings) -------------------------------------------------
