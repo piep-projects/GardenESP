@@ -169,7 +169,11 @@ def build(config: dict[str, Any] | None, box_id: str) -> dict[str, Any]:
     """Return the wiring projection for one box.
 
     Always carries ``{box, supported, layout, pins[], groups[], devices[],
-    gnd_pins[], notes[]}``. ``layout`` selects the renderer: ``"pinout"`` (WROOM —
+    gnd_pins[], notes[]}``. ``notes`` and each terminal's ``fn`` are **tokens**, not
+    sentences — the front-end turns them into ``wiring.note.*`` / ``wiring.fn.*``
+    catalog lookups, so the diagram follows the HA language (FR-I1 §4a). Silkscreen
+    and pin labels (``IN1``, ``COM``, ``V1``, ``GPIO12``) stay verbatim.
+    ``layout`` selects the renderer: ``"pinout"`` (WROOM —
     a 38-pin header diagram in ``pins``) or ``"terminals"`` (GardenControl — a
     screw-terminal plan in ``groups``). Read-only projection of the stored config.
     """
@@ -189,7 +193,7 @@ def build(config: dict[str, Any] | None, box_id: str) -> dict[str, Any]:
         return _build_wroom(box, box_view)
     if box.get("hw_type") == HW_GARDENCONTROL:
         return _build_gardencontrol(box, box_view)
-    return _empty(box_view, ["Verdrahtungsdiagramm aktuell nur für ESP32-WROOM und GardenControl verfügbar."])
+    return _empty(box_view, ["unsupported_platform"])
 
 
 def _build_wroom(box: dict[str, Any], box_view: dict[str, Any]) -> dict[str, Any]:
@@ -237,11 +241,7 @@ def _build_wroom(box: dict[str, Any], box_view: dict[str, Any]) -> dict[str, Any
         if p["cap"] == CAP_POWER and p["label"] == "GND"
     ]
 
-    notes = [
-        "GND jedes Geräts an einen beliebigen GND-Pad (markiert).",
-        "Ventile/Pumpen laufen über Relais/24 VAC — hier ist nur die Steuerleitung (GPIO) gezeigt.",
-        "Diagramm ist eine Verdrahtungs-Hilfe (Vorschlag), kein Abbild der konkreten Platine.",
-    ]
+    notes = ["wroom_gnd", "wroom_control_line", "wroom_suggestion"]
     return {
         "box": box_view, "supported": True, "layout": "pinout",
         "pins": pins, "groups": [], "devices": devices, "gnd_pins": gnd_pins, "notes": notes,
@@ -296,7 +296,12 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
         })
 
     def _c(lbl: str, fn: str, power: bool = False) -> dict[str, Any]:
-        """One terminal cell; power pads carry no assignment, blanks have empty label."""
+        """One terminal cell; power pads carry no assignment, blanks have empty label.
+
+        ``fn`` is a stable **token**, not prose: the front-end renders it as
+        ``t("wiring.fn.<token>")`` (FR-I1 §4a). ``label`` is the board silkscreen
+        and is never translated.
+        """
         a = None if (power or not lbl) else (out_by_term.get(lbl) or in_by_term.get(lbl))
         return {"label": lbl, "fn": fn, "power": power, "assignment": a}
 
@@ -304,26 +309,28 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     # (each split into a left + right 6-way block) and one valve row on the BOTTOM.
     grid = {
         "top_upper": [
-            _c("IN1", "4-20 mA Signal 1"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
-            _c("IN2", "4-20 mA Signal 2"), _c("VCC", "Sensor-Versorgung (24 V DC)", True),
-            _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
-            _c("COM", "Ventil-COM", True), _c("COM", "Ventil-COM", True),
+            _c("IN1", "ma_signal_1"), _c("VCC", "sensor_supply_24vdc", True),
+            _c("IN2", "ma_signal_2"), _c("VCC", "sensor_supply_24vdc", True),
+            _c("COM", "valve_com", True), _c("COM", "valve_com", True),
+            _c("COM", "valve_com", True), _c("COM", "valve_com", True),
             # Silkscreen order (board photo): R1 left of R2. The label is what counts —
             # the crossing lives in the pin map (R1 = MCP pin 13), not in the print.
-            _c("R1", "Relais 1 (24 VAC-Ausgang → Koppelrelais)"),
-            _c("R2", "Relais 2 (24 VAC-Ausgang → Koppelrelais)"),
-            _c("24VAC", "Versorgung 24 VAC", True), _c("24VAC", "Versorgung 24 VAC", True),
+            _c("R1", "relay_1"),
+            _c("R2", "relay_2"),
+            _c("24VAC", "supply_24vac", True), _c("24VAC", "supply_24vac", True),
         ],
         "top_lower": [
-            _c("VCC", "Abfragespannung Binäreingänge (24 V DC)", True),
-            _c("BIN1", "Binär 24 V (Regen/S0/Schalter)"),
-            _c("BIN2", "Binär 24 V (Regen/S0/Schalter)"), _c("BIN3", "Binär 24 V (Regen/S0/Schalter)"),
-            _c("+24V", "Sensor-Versorgung", True), _c("+12V", "Sensor-Versorgung", True),
-            _c("+5V", "Sensor-Versorgung", True), _c("ADC1", "Analog 0–12 V"),
-            _c("ADC2", "Analog 0–12 V"), _c("ADC3", "Analog 0–12 V"),
-            _c("ADC4", "Analog 0–12 V"), _c("GND", "Masse", True),
+            _c("VCC", "bin_query_supply", True),
+            _c("BIN1", "binary_24v"),
+            _c("BIN2", "binary_24v"), _c("BIN3", "binary_24v"),
+            _c("+24V", "sensor_supply", True), _c("+12V", "sensor_supply", True),
+            _c("+5V", "sensor_supply", True), _c("ADC1", "analog_0_12v"),
+            _c("ADC2", "analog_0_12v"), _c("ADC3", "analog_0_12v"),
+            _c("ADC4", "analog_0_12v"), _c("GND", "ground", True),
         ],
-        "bottom": [_c(f"V{n}", f"Ventil {n} (24 VAC)") for n in range(1, 13)],
+        # The valve number is already in the silkscreen label (V1…V12) — one shared
+        # token, no per-terminal placeholder in the payload.
+        "bottom": [_c(f"V{n}", "valve") for n in range(1, 13)],
     }
 
     # Mark the shared return/supply rails that are actually in use so the renderer can
@@ -350,21 +357,8 @@ def _build_gardencontrol(box: dict[str, Any], box_view: dict[str, Any]) -> dict[
     grid["top_lower"][0]["active"] = any(t in in_by_term for t in ("BIN1", "BIN2", "BIN3"))
 
     devices = [c["assignment"] for col in grid.values() for c in col if c["assignment"]]
-    notes = [
-        "Klemmenplan nach dem echten GardenControl-Board (Silkscreen-Labels).",
-        "Ventile V1–V12: geschaltete Ader an Vn, gemeinsamer Rückleiter an COM (Sammelschiene).",
-        "Relais R1/R2 (Koppelrelais): Spule an Relais-Ausgang + COM (wie ein Ventil); die "
-        "beiden 24VAC-Klemmen sind die Trafo-Einspeisung, kein Anschlusspunkt für die Spule. "
-        "Die potentialfreie Kontaktseite (z. B. 230-V-Pumpe) ist NICHT dargestellt — "
-        "extern, Elektrofachkraft.",
-        "4-20-mA-Sensoren an IN1/IN2: 2-Draht — Signal an INx, Versorgung (+) an das "
-        "nebenstehende VCC (24 V DC). Kein GND (Stromschleife schließt intern).",
-        "Analog-/DC-Sensoren an ADC1–4 (0–12 V): Sensor-Minus/GND an die GND-Klemme, "
-        "Versorgung von +5V/+12V/+24V.",
-        "BIN1–3 = Binär (Regen/S0/Schalter): potentialfreier Kontakt zwischen dem VCC-Pad "
-        "links neben BIN1 (Abfragespannung 24 V DC, kurzschlussfest) und BINx — gilt für "
-        "Rain-Clik/Taster ebenso wie für S0-Zähler (Wasser-/Stromzähler).",
-    ]
+    # Stable tokens → `t("wiring.note.<token>")` in the front-end (FR-I1 §4a).
+    notes = ["gc_silkscreen", "gc_valves", "gc_relays", "gc_4_20ma", "gc_analog", "gc_binary"]
     return {
         "box": box_view, "supported": True, "layout": "terminals",
         "pins": [], "grid": grid, "groups": [], "devices": devices, "gnd_pins": [], "notes": notes,

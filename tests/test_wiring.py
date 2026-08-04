@@ -75,7 +75,9 @@ class BuildTest(unittest.TestCase):
         out = wiring.build(_config({"id": "c", "hw_type": "custom_xyz"}), "c")
         self.assertFalse(out["supported"])
         self.assertIsNone(out["layout"])
-        self.assertTrue(out["notes"])
+        # The placeholder message is a token too — the panel renders it via
+        # t("wiring.note.unsupported_platform").
+        self.assertEqual(out["notes"], ["unsupported_platform"])
 
     def test_wroom_layout_flag(self):
         out = wiring.build(_config(_wroom_box()), "box_w")
@@ -233,10 +235,21 @@ class GardenControlTest(unittest.TestCase):
     def test_in_supply_pads_carry_silkscreen_vcc(self):
         # The board silkscreen prints "VCC" next to IN1/IN2 — only the vendor's
         # *connection drawing* annotates them functionally as "24V". The lens shows
-        # silkscreen labels; the 24 V DC function lives in the cell's `fn` text.
+        # silkscreen labels; the 24 V DC function lives in the cell's `fn` token.
         top = self.out["grid"]["top_upper"]
         self.assertEqual([c["label"] for c in top][:4], ["IN1", "VCC", "IN2", "VCC"])
-        self.assertIn("24 V DC", top[1]["fn"])
+        self.assertEqual(top[1]["fn"], "sensor_supply_24vdc")
+
+    def test_fn_and_notes_are_tokens_not_prose(self):
+        # FR-I1 §4a: the projection carries translation *tokens*; the wording lives
+        # in the front-end catalogs. A sentence here would be untranslatable, so
+        # assert the shape — lower_snake_case, no spaces, no German.
+        cells = [c for col in self.out["grid"].values() for c in col if c["label"]]
+        self.assertTrue(cells)
+        for c in cells:
+            self.assertRegex(c["fn"], r"^[a-z0-9_]+$", f"fn is prose: {c['fn']!r}")
+        for note in self.out["notes"]:
+            self.assertRegex(note, r"^[a-z0-9_]+$", f"note is prose: {note!r}")
 
     def test_device_return_pairing(self):
         by_name = {d["name"]: d for d in self.out["devices"]}

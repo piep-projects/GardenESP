@@ -9,34 +9,34 @@
  *   - Quellen    — water-source CRUD (FR-S5..S7)
  *   - Boxen      — box CRUD incl. nested outputs/inputs (incl. rain/soil sensor params) + admin YAML view (FR-S11/S12/S8)
  *
- * Labels are German per the project convention; identifiers stay English.
+ * UI language follows `hass.language` (FR-I1) — the wording lives in the shared
+ * JSON catalogs (frontend_i18n/), identifiers stay English.
  * Editing is draft-based: `_draft` is a working copy committed only on Save (FR-S4).
  */
 
-const SOURCE_TYPE = { cistern: "Zisterne", mains: "Festwasser" };
-const HW_LABEL = { gardencontrol: "GardenControl", esp32_wroom: "ESP32-WROOM" };
+// Domain enumerations: the code keeps only the *keys*, the wording lives in the
+// catalogs (i18n-concept §4). Everything here is evaluated at module load, i.e.
+// long before `hass` and the catalogs exist — hence keys, never labels.
+const SOURCE_TYPES = ["cistern", "mains"];
+const sourceTypeLabel = (x) => (SOURCE_TYPES.includes(x) ? t(`enum.source_type.${x}`) : x || "");
+const HW_LABEL = { gardencontrol: "GardenControl", esp32_wroom: "ESP32-WROOM" }; // product names — not translated
 // rain/soil are configured as box inputs (no separate sensor object).
 const SENSOR_INPUT_KINDS = ["rain", "soil_moisture"];
 // Firmware-drift status per box (#9) — keys match coordinator drift.fw_status().
-const FW_STATUS = {
-  current: { label: "Firmware aktuell", cls: "ok" },
-  current_offline: { label: "aktuell (offline)", cls: "" },
-  drift: { label: "Flashen ausstehend", cls: "warn" },
-  drift_offline: { label: "Flashen ausstehend (offline)", cls: "warn" },
-  exported: { label: "YAML exportiert", cls: "" },
-  drift_export: { label: "Änderung seit Export", cls: "warn" },
-  never: { label: "YAML nie exportiert", cls: "" },
-  error: { label: "YAML-Fehler", cls: "estop" },
+// Only the colour class stays in code; the wording is `panel.fw.<status>`.
+const FW_STATUS_CLS = {
+  current: "ok",
+  current_offline: "",
+  drift: "warn",
+  drift_offline: "warn",
+  exported: "",
+  drift_export: "warn",
+  never: "",
+  error: "estop",
 };
 const FW_ATTENTION = ["drift", "drift_offline", "drift_export"];
-const OUTPUT_TYPE = { valve: "Ventil", pump: "Pumpe", other: "Sonstiges" };
-const INPUT_KIND = {
-  pressure: "Drucksensor",
-  soil_moisture: "Bodenfeuchte",
-  rain: "Regensensor",
-  pulse_meter: "Literzähler",
-  button: "Taster / Schalter",
-};
+const OUTPUT_TYPES = ["valve", "pump", "other"];
+const INPUT_KINDS = ["pressure", "soil_moisture", "rain", "pulse_meter", "button"];
 const BOX_LABELS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A…Z
 // Channel inventory per hw_type (drives the A5 id + the ESPHome pin, FDS §4.1/§5.4):
 // GardenControl = 12 valve channels + 2 relay channels; ESP32-WROOM = 8 shared GPIO channels.
@@ -76,25 +76,224 @@ const INPUT_PINS = {
     button: ESP32_DIGITAL,
   },
 };
-// Keys MUST match schedule.py WEEKDAY_KEYS (mo..su) or weekly never fires.
+// Keys MUST match schedule.py WEEKDAY_KEYS (mo..su) or weekly never fires — this
+// is *storage*, never display. The visible names come from Intl (weekdayLabel),
+// their order from `hass.locale.first_weekday` (weekdayOrder).
 const WEEKDAYS = ["mo", "tu", "we", "th", "fr", "sa", "su"];
-const WEEKDAY_LABEL = { mo: "Mo", tu: "Di", we: "Mi", th: "Do", fr: "Fr", sa: "Sa", su: "So" };
-const REPEAT = { daily: "Täglich", weekly: "Wöchentlich", monthly: "Monatlich" };
+const REPEATS = ["daily", "weekly", "monthly"];
 const ICON = "mdi:sprout"; // shared with sidebar + card (const.py PANEL_ICON)
-// Online-Hilfe (GitHub Pages). Single source of truth ist die Doku-Site — das Panel
-// verlinkt nur dorthin (Header-„? Hilfe" + Onboarding), statt die Anleitung zu duplizieren.
+// Online help (GitHub Pages). The docs site is the single source of truth — the
+// panel only links there (header „? Help" + onboarding) instead of duplicating it.
 const DOCS_URL = "https://piep-projects.github.io/GardenESP/";
 
-const TABS = [
-  { id: "lines", label: "Linien" },
-  { id: "controls", label: "Steuerungen" },
-  { id: "sources", label: "Quellen" },
-  { id: "boxes", label: "Hardware" },
-  { id: "topology", label: "Topologie" },
-  { id: "general", label: "Allgemein" },
-];
+const TAB_IDS = ["lines", "controls", "sources", "boxes", "topology", "general"];
+// Wiring-lens vocabularies (FR-I1 §4a): the code keeps the keys, the catalogs the
+// wording. Silkscreen and pin labels (IN1, COM, V1, GPIO12) are NOT in here — they
+// are the physical print on the board and stay verbatim in every language.
+const WIRE_ROLES = ["valve", "pump", "other", "sensor"];
+const WIRE_CAPS = ["io", "input_only", "strapping", "uart", "forbidden", "power"];
 
 const POLL_MS = 10000;
+const APP_NAME = "GardenESP";
+
+// ---------------------------------------------------------------------------
+// i18n / l10n (FR-I1, docs/i18n-concept.md §4/§7/§8)
+//
+// Same mechanism as the dashboard card, same catalogs: three independent axes —
+// language from `hass.language`, number/date format from `hass.locale`, units
+// from `hass.config.unit_system`. Translations are *data*: one flat JSON catalog
+// per language, fetched at runtime. English is the base/fallback.
+//
+// The panel is the **editing** surface, so it carries one duty the card does not:
+// every number it *displays* must stay re-editable. Output goes through fmtNum,
+// input through parseNum (both decimal separators) — never parseFloat on a
+// user-typed string, that silently turns "1,5" into 1 (i18n-concept §7).
+// ---------------------------------------------------------------------------
+const I18N_URL = "/gardenesp_i18n"; // static path (const.py I18N_STATIC_URL)
+const I18N_BASE_LANG = "en";
+// Our own module URL carries `?v=<manifest version>` (the panel is registered
+// that way) — reuse it to cache-bust the catalogs in lockstep with the JS.
+const VERSION = (() => {
+  try {
+    return new URL(import.meta.url).searchParams.get("v") || "0";
+  } catch (e) {
+    return "0";
+  }
+})();
+// Emergency catalog: if *no* catalog can be fetched (stale deploy, 404, offline)
+// the fallback chain would end at the raw key. Scope = the frame the user always
+// sees and needs to navigate out of: tab bar, header, the loading/error screen
+// and the primary actions. Everything deeper degrades via humanizeKey() below.
+const I18N_EMERGENCY = {
+  "common.loading": "Loading…",
+  "common.error": "Error: {msg}",
+  "error.unknown": "Unknown error",
+  "error.code": "Error {code}",
+  "error.ws_connect": "Cannot connect to Home Assistant",
+  "error.ws_auth": "Authentication invalid",
+  "error.ws_disconnected": "Connection to Home Assistant lost",
+  "panel.tab.lines": "Lines",
+  "panel.tab.controls": "Controls",
+  "panel.tab.sources": "Water sources",
+  "panel.tab.boxes": "Hardware",
+  "panel.tab.topology": "Topology",
+  "panel.tab.general": "General",
+  "panel.head.dashboard": "Dashboard",
+  "panel.head.help": "? Help",
+  // The section headings belong in here too: humanizeKey() would reduce
+  // "panel.lines.title" to its last segment ("Title"), which is readable but says
+  // nothing — the one place where the last-resort rule is not good enough.
+  "panel.lines.title": "Irrigation lines",
+  "panel.controls.title": "Controls",
+  "panel.sources.title": "Water sources",
+  "panel.general.title": "General",
+  "panel.topo.title": "Topology",
+  "panel.box.heading": "Controller",
+  "panel.action.new": "+ New",
+  "panel.action.edit": "Edit",
+  "panel.action.save": "Save",
+  "panel.action.cancel": "Cancel",
+  "panel.action.delete": "Delete",
+  "panel.action.close": "Close",
+};
+const _i18nFetches = new Map(); // lang -> Promise<catalog|null>
+let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
+// Format/unit state, refreshed from `hass` on every load. Module-level so the
+// formatters stay callable from the dozens of render helpers that have no `hass`
+// at hand, while still following the two non-language axes.
+const _fmt = { locale: I18N_BASE_LANG, us: false, firstWeekday: "language" };
+
+function i18nLang(hass) {
+  return String((hass && hass.language) || I18N_BASE_LANG).split("-")[0];
+}
+
+function i18nFetch(lang) {
+  if (!_i18nFetches.has(lang)) {
+    _i18nFetches.set(
+      lang,
+      fetch(`${I18N_URL}/${lang}.json?v=${encodeURIComponent(VERSION)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    );
+  }
+  return _i18nFetches.get(lang);
+}
+
+// Load base (en) *and* the active language, then merge on read. Called from the
+// existing async load, so the first render already has its strings.
+async function i18nLoad(hass) {
+  const lang = i18nLang(hass);
+  const units = (hass && hass.config && hass.config.unit_system) || {};
+  const locale = (hass && hass.locale) || {};
+  _fmt.locale = locale.language || lang;
+  _fmt.us = units.volume === "gal" || units.length === "mi";
+  _fmt.firstWeekday = locale.first_weekday || "language";
+  if (_i18n.lang === lang) return;
+  const [base, cat] = await Promise.all([
+    i18nFetch(I18N_BASE_LANG),
+    lang === I18N_BASE_LANG ? null : i18nFetch(lang),
+  ]);
+  _i18n = {
+    lang,
+    base: base || {},
+    cat: cat || (lang === I18N_BASE_LANG ? base || {} : {}),
+    degraded: !base,
+  };
+  if (_i18n.degraded) console.warn(`${APP_NAME}: no translation catalog loaded — falling back to built-in English`);
+}
+
+// Three-step fallback: active language → en → emergency → humanized key.
+// Placeholders are named (`{n}`); values are substituted verbatim, so anything
+// user-supplied must be esc()'d by the caller — t() does not escape.
+function t(key, vars) {
+  const s = _i18n.cat[key] ?? _i18n.base[key] ?? I18N_EMERGENCY[key] ?? humanizeKey(key);
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k]))) : s;
+}
+// Last resort so a key never reaches the screen as „panel.field.max_volume":
+// take its last segment and make it readable („Max volume").
+function humanizeKey(key) {
+  const last = String(key).split(".").pop().replace(/_/g, " ");
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+// Number/date formatting follows `hass.locale` — never a hard-coded "de-DE".
+function fmtNum(value, opts) {
+  const n = Number(value);
+  if (!isFinite(n)) return "—";
+  try {
+    return new Intl.NumberFormat(_fmt.locale, opts).format(n);
+  } catch (e) {
+    return String(n);
+  }
+}
+function fmtDateTime(date, opts) {
+  try {
+    return new Intl.DateTimeFormat(_fmt.locale, opts).format(date);
+  } catch (e) {
+    return date.toISOString();
+  }
+}
+// Counterpart to fmtNum: read a number the user typed. Accepts both decimal
+// separators, because a localised display must stay re-editable (a de user types
+// "1,5", an en user "1.5"). Never feed a formatted string back into an input.
+function parseNum(text) {
+  if (text == null) return NaN;
+  const s = String(text).trim().replace(/\s/g, "");
+  if (!s) return NaN;
+  // "1.234,5" → thousands dot; "1,5" → decimal comma; "1.5" → decimal dot.
+  const norm = /,\d{1,3}$/.test(s) ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  return Number(norm);
+}
+
+// Units are their own axis: storage, calibration and every *input* stay metric
+// (FR-I1 (e)) — only read-only displays convert. That split is deliberate: a
+// calibration table in gallons would silently corrupt the stored litres.
+const L_PER_GAL = 3.785411784;
+function vol(liters, withUnit = true) {
+  const v = Number(liters);
+  if (!isFinite(v)) return "—";
+  if (_fmt.us)
+    return `${fmtNum(v / L_PER_GAL, { maximumFractionDigits: 0 })}${withUnit ? ` ${t("unit.gallons")}` : ""}`;
+  return `${fmtNum(Math.round(v), { maximumFractionDigits: 0 })}${withUnit ? ` ${t("unit.liters")}` : ""}`;
+}
+
+// --- weekdays ---------------------------------------------------------------
+// Names come from Intl (so a new language needs no catalog entry), the week's
+// start from `hass.locale.first_weekday`. 2024-01-01 was a Monday — index the
+// storage keys off it and format in UTC so no time zone shifts the day.
+const WEEKDAY_NAMES = new Map();
+function weekdayLabel(w) {
+  const i = WEEKDAYS.indexOf(w);
+  if (i < 0) return w;
+  const ck = `${_fmt.locale}|${w}`;
+  if (!WEEKDAY_NAMES.has(ck)) {
+    let s;
+    try {
+      s = new Intl.DateTimeFormat(_fmt.locale, { weekday: "short", timeZone: "UTC" })
+        .format(new Date(Date.UTC(2024, 0, 1 + i)));
+    } catch (e) {
+      s = w;
+    }
+    WEEKDAY_NAMES.set(ck, s);
+  }
+  return WEEKDAY_NAMES.get(ck);
+}
+// Display order, rotated to the locale's first day. "language" (HA's default)
+// asks the locale itself; browsers without `weekInfo` fall back to Monday.
+function weekdayOrder() {
+  const named = WEEKDAYS.indexOf(String(_fmt.firstWeekday).slice(0, 2).toLowerCase());
+  let start = named;
+  if (start < 0) {
+    let firstDay = 1; // ISO Monday
+    try {
+      const li = new Intl.Locale(_fmt.locale);
+      const wi = li.weekInfo || (typeof li.getWeekInfo === "function" ? li.getWeekInfo() : null);
+      if (wi && wi.firstDay) firstDay = wi.firstDay;
+    } catch (e) { /* no weekInfo → Monday */ }
+    start = (firstDay - 1) % 7;
+  }
+  return WEEKDAYS.slice(start).concat(WEEKDAYS.slice(0, start));
+}
 
 class GardenEspPanel extends HTMLElement {
   constructor() {
@@ -143,9 +342,12 @@ class GardenEspPanel extends HTMLElement {
   async _load() {
     if (!this._hass) return;
     try {
+      // Catalogs load alongside the config, so the first render already has its
+      // strings — no flash of untranslated content.
       const [data, topo] = await Promise.all([
         this._ws({ type: "gardenesp/config/get" }),
         this._ws({ type: "gardenesp/topology" }),
+        i18nLoad(this._hass),
       ]);
       this._data = data;
       this._topology = (topo && topo.strands) || [];
@@ -179,7 +381,7 @@ class GardenEspPanel extends HTMLElement {
     try {
       await this._ws(msg);
     } catch (err) {
-      this._toast(`${label} fehlgeschlagen: ${errText(err)}`);
+      this._toast(t("panel.toast.action_failed", { action: label, msg: errText(err) }));
     }
     await this._load();
   }
@@ -192,7 +394,7 @@ class GardenEspPanel extends HTMLElement {
       if (this._editing.kind === "box") {
         const dup = this._dupName(this._draft.outputs) || this._dupName(this._draft.inputs);
         if (dup) {
-          this._toast(`Name „${dup}" ist doppelt — Aus-/Eingangsnamen müssen je Steuergerät eindeutig sein.`);
+          this._toast(t("panel.toast.dup_name", { name: dup }));
           return;
         }
       }
@@ -201,7 +403,7 @@ class GardenEspPanel extends HTMLElement {
       this._draft = null;
       await this._load();
     } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${errText(err)}`);
+      this._toast(t("panel.toast.save_failed", { msg: errText(err) }));
     }
   }
 
@@ -211,8 +413,8 @@ class GardenEspPanel extends HTMLElement {
   }
 
   async _delete(kind, id) {
-    if (!confirm("Wirklich löschen?")) return;
-    await this._action({ type: "gardenesp/delete", kind: this._wsKind(kind), obj_id: id }, "Löschen");
+    if (!confirm(t("panel.confirm.delete"))) return;
+    await this._action({ type: "gardenesp/delete", kind: this._wsKind(kind), obj_id: id }, t("panel.action.delete"));
     this._editing = null;
     this._draft = null;
     this._render();
@@ -261,7 +463,7 @@ class GardenEspPanel extends HTMLElement {
     const used = new Set(
       Object.values(this._cfg().boxes || {}).filter((b) => b.id !== d.id).map((b) => b.label).filter(Boolean)
     );
-    const opts = [["", "— wählen —"]];
+    const opts = [["", t("panel.select.choose")]];
     for (const l of BOX_LABELS) if (!used.has(l) || l === d.label) opts.push([l, l]);
     return opts;
   }
@@ -281,7 +483,7 @@ class GardenEspPanel extends HTMLElement {
   // and relais (pump + other) channels apart.
   _samePool(hwType, a, b) {
     if (hwType !== "gardencontrol") return true;
-    const relais = (t) => t === "pump" || t === "other";
+    const relais = (x) => x === "pump" || x === "other";
     return relais(a.type) ? relais(b.type) : a.type === b.type;
   }
   _firstFreeChannel(hwType, type) {
@@ -303,7 +505,7 @@ class GardenEspPanel extends HTMLElement {
         .filter(Boolean)
     );
     const gcValve = d.hw_type === "gardencontrol" && o.type !== "pump" && o.type !== "other";
-    const opts = [["", "— Kanal —"]];
+    const opts = [["", t("panel.select.channel")]];
     for (const c of pool) if (!used.has(c) || c === String(o.channel)) opts.push([c, gcValve ? `CH${c}` : c]);
     return opts;
   }
@@ -336,7 +538,7 @@ class GardenEspPanel extends HTMLElement {
   _inputPinOptions(d, inp, i) {
     const pool = this._inputPinPool(d.hw_type, inp.kind);
     const used = this._usedGpios(d, -1, i);
-    const opts = [["", "— Pin —"]];
+    const opts = [["", t("panel.select.pin")]];
     for (const p of pool) if (!used.has(p) || p === String(inp.pin)) opts.push([p, this._inputPinLabel(p, d.hw_type)]);
     return opts;
   }
@@ -365,7 +567,7 @@ class GardenEspPanel extends HTMLElement {
   // --- generic-box output GPIO (free wiring) ---------------------------------
   _outputGpioOptions(d, o, i) {
     const used = this._usedGpios(d, i, -1);
-    const opts = [["", "— GPIO —"]];
+    const opts = [["", t("panel.select.gpio")]];
     for (const g of ESP32_DIGITAL) if (!used.has(g) || g === String(o.gpio)) opts.push([g, g]);
     return opts;
   }
@@ -398,17 +600,18 @@ class GardenEspPanel extends HTMLElement {
     const autoLabel = auto ? this._channelLabel(d, auto) : "—";
     const others = (d.outputs || []).filter((x, j) => j !== i && x.id);
     const cur = (o.connected || [])[0] || "";
-    const opts = `<option value="">— kein —</option>` + others
+    const opts = `<option value="">${esc(t("panel.select.none"))}</option>` + others
       .map((x) => `<option value="${esc(x.id)}" ${x.id === cur ? "selected" : ""}>${esc(this._channelLabel(d, x))}</option>`)
       .join("");
-    return `<input class="ro" disabled value="${esc(autoLabel)}" title="ConnectedDevice automatisch (Quellen-Pumpe)">
-      <select data-conn="${i}" title="zusätzlich schalten (manuell)">${opts}</select>`;
+    return `<input class="ro" disabled value="${esc(autoLabel)}" title="${esc(t("panel.conn.auto_title"))}">
+      <select data-conn="${i}" title="${esc(t("panel.conn.manual_title"))}">${opts}</select>`;
   }
   // Polarity: fixed by the platform for GardenControl (read-only), editable for generic.
   _polaritySelect(d, o, i) {
     if (d.hw_type === "gardencontrol")
-      return `<input class="ro" disabled value="aktiv-HIGH" title="durch Plattform vorgegeben">`;
-    return select(`outputs.${i}.relais_off`, o.relais_off || "HIGH", [["HIGH", "aktiv-LOW"], ["LOW", "aktiv-HIGH"]]);
+      return `<input class="ro" disabled value="${esc(t("panel.polarity.active_high"))}" title="${esc(t("panel.polarity.fixed"))}">`;
+    return select(`outputs.${i}.relais_off`, o.relais_off || "HIGH",
+      [["HIGH", t("panel.polarity.active_low")], ["LOW", t("panel.polarity.active_high")]]);
   }
 
   // Entity_ids are NOT derived client-side: HA assigns ESPHome entity_ids from
@@ -432,11 +635,11 @@ class GardenEspPanel extends HTMLElement {
   _render() {
     const root = this.shadowRoot && this.shadowRoot.getElementById("root");
     if (!root) return;
-    if (this._loading) return void (root.innerHTML = `<div class="empty">Lade…</div>`);
+    if (this._loading) return void (root.innerHTML = `<div class="empty">${esc(t("common.loading"))}</div>`);
     // Only take over the whole panel before the first successful load; a later
     // refresh failure (dropped WS on a backgrounded app) keeps the panel usable.
     if (this._error && !this._data)
-      return void (root.innerHTML = `<div class="empty err">Fehler: ${esc(this._error)}</div>`);
+      return void (root.innerHTML = `<div class="empty err">${esc(t("common.error", { msg: this._error }))}</div>`);
 
     let body;
     if (this._editing) body = this._form();
@@ -449,20 +652,20 @@ class GardenEspPanel extends HTMLElement {
   }
 
   _nav() {
-    const tabs = TABS.map(
-      (t) => `<button class="tab ${t.id === this._view ? "on" : ""}" data-tab="${t.id}">${t.label}</button>`
+    const tabs = TAB_IDS.map(
+      (id) => `<button class="tab ${id === this._view ? "on" : ""}" data-tab="${id}">${esc(t(`panel.tab.${id}`))}</button>`
     ).join("");
-    return `<div class="head"><h1><ha-icon icon="${ICON}"></ha-icon> GardenESP</h1>
+    return `<div class="head"><h1><ha-icon icon="${ICON}"></ha-icon> ${APP_NAME}</h1>
       <div class="headbtns">
-        <button class="btn onbrand" data-act="back" title="Zurück zum Dashboard">Dashboard</button>
-        <a class="btn onbrand" href="${DOCS_URL}" target="_blank" rel="noopener" title="Online-Hilfe öffnen">? Hilfe</a>
+        <button class="btn onbrand" data-act="back" title="${esc(t("panel.head.dashboard_title"))}">${esc(t("panel.head.dashboard"))}</button>
+        <a class="btn onbrand" href="${DOCS_URL}" target="_blank" rel="noopener" title="${esc(t("panel.head.help_title"))}">${esc(t("panel.head.help"))}</a>
       </div></div>
       <nav class="tabs">${tabs}${this._fwBanner()}</nav>`;
   }
 
   // Link to a page of the online docs, styled as a button (opens in a new tab).
   _docsBtn(path, label, cls = "ghost") {
-    return `<a class="btn ${cls}" href="${DOCS_URL}${path}" target="_blank" rel="noopener">${label}</a>`;
+    return `<a class="btn ${cls}" href="${DOCS_URL}${path}" target="_blank" rel="noopener">${esc(label)}</a>`;
   }
 
   // --- list views (settings) -------------------------------------------------
@@ -483,10 +686,10 @@ class GardenEspPanel extends HTMLElement {
   // (Desktop, CSS-Grid mit Spalten-Spans); auf schmalen Screens vertikal gestapelt.
   _topologyView() {
     const groups = this._topoGroups();
-    const intro = `<p class="sub topo-intro">Abgeleitete Sicht (read-only) aus Quellen · Linien · Steuergeräte — kein eigener Speicher. Strecke je Quelle: Steuergerät → Quelle (+Sensor) → Pumpe (+verbundenes Ventil) → Ventil → Linie.</p>`;
-    const printBtn = groups.length ? `<button class="btn" data-printtopo>Drucken</button>` : "";
-    const head = `<div class="listhead"><h2>Topologie</h2>${printBtn}</div>${intro}`;
-    if (!groups.length) return `${head}<div class="empty">Keine Wasserquellen angelegt.</div>`;
+    const intro = `<p class="sub topo-intro">${esc(t("panel.topo.intro"))}</p>`;
+    const printBtn = groups.length ? `<button class="btn" data-printtopo>${esc(t("panel.action.print"))}</button>` : "";
+    const head = `<div class="listhead"><h2>${esc(t("panel.topo.title"))}</h2>${printBtn}</div>${intro}`;
+    if (!groups.length) return `${head}<div class="empty">${esc(t("panel.topo.empty"))}</div>`;
     return head + groups.map((g) => this._topoGroup(g)).join("");
   }
 
@@ -516,16 +719,21 @@ class GardenEspPanel extends HTMLElement {
   _topoSvg(g, box, hw) {
     const ACC = { box: "#6a4caf", src: "#1976d2", pump: "#d79b00", valve: "#2e7d32", line: "#455a64" };
     const TINT = { "#6a4caf": "#efeaf7", "#1976d2": "#e8f1fb", "#d79b00": "#fbf2dd", "#2e7d32": "#e9f4ea", "#455a64": "#eceff1" };
-    const CWT = 7.0, CWM = 6.0, PAD = 9, ROWH = 64, TOP = 28, GAP = 38;
+    const PAD = 9, ROWH = 64, TOP = 28, GAP = 38;
 
-    // --- text-width estimates (no DOM measuring; mirrors the wiring legend) ---
-    const idW = (id) => (id ? id.length * 7.2 + 12 : 0);
-    const tagW = (t) => (t ? t.length * 5.8 + 14 : 0);
+    // --- text widths: measured, not guessed -------------------------------
+    // The old fixed px-per-char constants were tuned on German labels; English
+    // ones are longer and the node boxes are sized from these numbers, so a
+    // guess here shows up as text running out of its own box. Same approach as
+    // the wiring lens (+6 % margin for renderers without Roboto, e.g. print).
+    const tw = (str, font) => Math.ceil(textWidth(str, font) * 1.06);
+    const idW = (id) => (id ? tw(id, TN_FONT.id) + 12 : 0);
+    const tagW = (s2) => (s2 ? tw(s2, TN_FONT.tag) + 14 : 0);
     const titleW = (n) =>
-      idW(n.id) + (n.id ? 5 : 0) + (n.text || "").length * CWT + (n.tag ? tagW(n.tag) + 6 : 0);
+      idW(n.id) + (n.id ? 5 : 0) + tw(n.text || "", TN_FONT.title) + (n.tag ? tagW(n.tag) + 6 : 0);
     const nodeW = (n) => {
       let w = titleW(n);
-      (n.meta || []).forEach((m) => { w = Math.max(w, m.length * CWM); });
+      (n.meta || []).forEach((m) => { w = Math.max(w, tw(m, TN_FONT.meta)); });
       return Math.ceil(w + PAD * 2);
     };
     const nodeH = (n) => 18 + 14 * (n.meta || []).length + 14;
@@ -533,28 +741,36 @@ class GardenEspPanel extends HTMLElement {
     // --- node descriptors per column ----------------------------------------
     const outNode = (o, acc) => {
       if (!o) return { text: "—", meta: [], muted: true };
-      const pin = o.gpio || o.channel || "";
+      const pin = o.gpio || o.channel || "";   // silkscreen/GPIO label — never translated
       const meta = [];
-      if (pin || o.emergency_min) meta.push(`${pin}${o.emergency_min ? ` · ⏱ ${o.emergency_min} min` : ""}`);
+      if (pin || o.emergency_min)
+        meta.push(`${pin}${o.emergency_min ? ` · ⏱ ${fmtNum(o.emergency_min)} ${t("unit.minutes")}` : ""}`);
       return { id: o.short_id || null, idColor: acc, text: o.name || "", meta };
     };
     const srcNode = (s) => {
-      const meta = [s.sensor ? `Sensor: ${s.sensor.name}${s.sensor.pin ? ` · ${s.sensor.pin}` : ""}` : "kein Sensor"];
-      if (s.type === "cistern") meta.push(`Max ${s.max_volume_l || "?"} L · Mindest ${s.min_fill_pct || 0} %`);
-      return { text: s.name, tag: SOURCE_TYPE[s.type] || s.type || "", meta };
+      const meta = [s.sensor
+        ? t("topology.sensor", { name: `${s.sensor.name}${s.sensor.pin ? ` · ${s.sensor.pin}` : ""}` })
+        : t("topology.no_sensor")];
+      if (s.type === "cistern")
+        meta.push(t("topology.capacity", {
+          max: s.max_volume_l ? vol(s.max_volume_l) : "?", pct: fmtNum(s.min_fill_pct || 0),
+        }));
+      return { text: s.name, tag: sourceTypeLabel(s.type), meta };
     };
     const pumpNode = (p) => {
-      if (!p) return { text: "keine Pumpe", meta: ["Druck/Schwerkraft"], muted: true };
+      if (!p) return { text: t("topology.no_pump"), meta: [t("topology.gravity")], muted: true };
       const n = outNode(p, ACC.pump);
       (p.connected || []).forEach((c) => n.meta.push(`↳ ${c.short_id ? c.short_id + " " : ""}${c.name}`));
       return n;
     };
     const lineNode = (ln) => {
-      if (!ln || !ln.id) return { text: "keine Linie", meta: [], muted: true };
+      if (!ln || !ln.id) return { text: t("topology.no_line"), meta: [], muted: true };
+      const meta = t("topology.automatic", { state: t(ln.automatic ? "common.on" : "common.off") })
+        + (ln.sensor_name ? " · " + t("topology.blocked_by", { name: ln.sensor_name }) : "");
       return {
         id: ln.line_id || null, idColor: ACC.line, text: ln.name || "",
-        tag: ln.automatic ? null : "Auto aus",
-        meta: [`Automatik: ${ln.automatic ? "ein" : "aus"}${ln.sensor_name ? ` · Sperre: ${ln.sensor_name}` : ""}`],
+        tag: ln.automatic ? null : t("common.tag.auto_off"),
+        meta: [meta],
       };
     };
     const boxN = { id: g.label || "?", idColor: ACC.box, text: box ? box.name : g.box_id, meta: hw ? [hw] : [] };
@@ -572,8 +788,19 @@ class GardenEspPanel extends HTMLElement {
     const totalRows = row || 1;
 
     // --- column widths (text-sized) → x positions ---------------------------
-    let w1 = 90, w2 = 90, w3 = 90, w4 = 90;
-    const w0 = nodeW(boxN);
+    // Every column must be at least as wide as its own heading: the heading is
+    // drawn centred over the column, so a narrow column pushes it out sideways —
+    // and the first column has nothing to its left, so it gets clipped by the
+    // viewBox. That bites whenever a box node is tiny (a source with no
+    // controller renders as "?") and it gets worse with longer translations.
+    const headLabel = (col) => t(`topology.col.${col}`).toUpperCase();
+    const headW = (col) => {
+      const lbl = headLabel(col);
+      return tw(lbl, TN_FONT.head) + lbl.length * TN_HEAD_TRACKING + 8;
+    };
+    let w1 = Math.max(90, headW("source")), w2 = Math.max(90, headW("pump"));
+    let w3 = Math.max(90, headW("valve")), w4 = Math.max(90, headW("line"));
+    const w0 = Math.max(nodeW(boxN), headW("box"));
     blocks.forEach((b) => {
       w1 = Math.max(w1, nodeW(b.srcN)); w2 = Math.max(w2, nodeW(b.pumpN));
       b.leaves.forEach((l) => { w3 = Math.max(w3, nodeW(l.outN)); w4 = Math.max(w4, nodeW(l.lineN)); });
@@ -596,7 +823,7 @@ class GardenEspPanel extends HTMLElement {
       }
       s += `<text x="${tx.toFixed(1)}" y="${yT.toFixed(1)}" class="tn-t${n.muted ? " mut" : ""}">${esc(n.text || "")}</text>`;
       if (n.tag) {
-        const tgx = tx + (n.text || "").length * CWT + 6, tgw = tagW(n.tag);
+        const tgx = tx + tw(n.text || "", TN_FONT.title) + 6, tgw = tagW(n.tag);
         s += `<rect x="${tgx.toFixed(1)}" y="${(yT - 11).toFixed(1)}" width="${tgw.toFixed(1)}" height="15" rx="4" class="tn-tagbox"/>` +
           `<text x="${(tgx + tgw / 2).toFixed(1)}" y="${(yT - 0.5).toFixed(1)}" class="tn-tag" text-anchor="middle">${esc(n.tag)}</text>`;
       }
@@ -617,8 +844,9 @@ class GardenEspPanel extends HTMLElement {
     };
 
     // --- assemble ------------------------------------------------------------
-    const heads = [["Steuergerät", x0, w0], ["Quelle", x1, w1], ["Pumpe", x2, w2], ["Ventil", x3, w3], ["Linie", x4, w4]];
-    let svg = heads.map(([t, x, w]) => `<text x="${(x + w / 2).toFixed(1)}" y="13" class="tn-h" text-anchor="middle">${t}</text>`).join("");
+    const heads = [["box", x0, w0], ["source", x1, w1], ["pump", x2, w2], ["valve", x3, w3], ["line", x4, w4]];
+    let svg = heads.map(([col, x, w]) =>
+      `<text x="${(x + w / 2).toFixed(1)}" y="13" class="tn-h" text-anchor="middle">${esc(t(`topology.col.${col}`))}</text>`).join("");
 
     const boxCY = bandCenter(0, totalRows);
     svg += drawNode(x0, boxCY, w0, boxN, ACC.box);
@@ -648,7 +876,7 @@ class GardenEspPanel extends HTMLElement {
     const groups = this._topoGroups();
     if (!groups.length) return;
     const win = window.open("", "_blank");
-    if (!win) { this._toast("Pop-up blockiert — Druck nicht möglich."); return; }
+    if (!win) { this._toast(t("panel.toast.popup_blocked")); return; }
     const cfg = this._cfg();
     const body = groups
       .map((g) => {
@@ -657,10 +885,10 @@ class GardenEspPanel extends HTMLElement {
         return `<h2>${esc(cap)}</h2>${this._topoSvg(g, box, box ? (HW_LABEL[box.hw_type] || box.hw_type) : "")}`;
       })
       .join("");
-    win.document.write(`<!doctype html><html><head><title>Topologie</title>
+    win.document.write(`<!doctype html><html><head><title>${esc(t("panel.topo.title"))}</title>
       <style>${this._topoStyle()} body{margin:16px;font-family:sans-serif}h1{font-size:16px}
       h2{font-size:13px;margin:16px 0 4px;color:#444}.toposvg{page-break-inside:avoid}</style></head><body>
-      <h1>GardenESP — Topologie</h1>
+      <h1>${esc(APP_NAME)} — ${esc(t("panel.topo.title"))}</h1>
       ${body}
       <script>window.onload=function(){window.print();}<\/script></body></html>`);
     win.document.close();
@@ -668,7 +896,7 @@ class GardenEspPanel extends HTMLElement {
   // Topology SVG node/connector styling — embedded in the print window (hardcoded
   // colours so it renders without the panel theme vars; mirrors the .toposvg rules).
   _topoStyle() {
-    return `.toposvg{display:block;width:100%;height:auto;font-family:sans-serif}
+    return `.toposvg{display:block;width:100%;height:auto;font-family:Roboto,"Helvetica Neue",Arial,sans-serif}
       .toposvg .tn-h{font-size:10px;font-weight:700;letter-spacing:.5px;fill:#888;text-transform:uppercase}
       .toposvg .tn-id{font-size:10.5px;font-weight:700;fill:#fff}
       .toposvg .tn-t{font-size:13px;font-weight:600;fill:#222}
@@ -680,7 +908,7 @@ class GardenEspPanel extends HTMLElement {
 
   _listHeader(title, kind) {
     return `<div class="listhead${title ? "" : " nohead"}">${title ? `<h2>${esc(title)}</h2>` : ""}
-      <button class="btn primary" data-add="${kind}">+ Neu</button></div>`;
+      <button class="btn primary" data-add="${kind}">${esc(t("panel.action.new"))}</button></div>`;
   }
 
   _linesList(cfg) {
@@ -691,17 +919,17 @@ class GardenEspPanel extends HTMLElement {
           const src = (cfg.sources || {})[ln.source_id];
           return `<div class="row"><div class="grow">
             <div class="title"><span class="chip">${esc(this._lineId(cfg, ln))}</span> ${esc(ln.name || ln.id)} ${this._autoChip(ln)}</div>
-            <div class="sub">${box ? esc(box.name) : "keine Box"} · ${src ? esc(src.name) : "ohne Quelle"}</div>
+            <div class="sub">${box ? esc(box.name) : esc(t("panel.list.no_box"))} · ${src ? esc(src.name) : esc(t("panel.list.no_source"))}</div>
             <div class="schedchips">${this._scheduleChips(ln)}</div>
             ${this._stamps(ln)}
             ${this._idLine(ln.id)}</div>
             ${this._autoToggle(ln)}
-            <button class="btn" data-editline="${esc(ln.id)}">Bearbeiten</button></div>`;
+            <button class="btn" data-editline="${esc(ln.id)}">${esc(t("panel.action.edit"))}</button></div>`;
         }).join("")
       : Object.keys(cfg.boxes || {}).length
-        ? `<div class="empty">Noch keine Linien. „+ Neu" ordnet einem Ventil-Ausgang eine Linie zu.</div>`
-        : `<div class="empty">Noch keine Linien — lege zuerst im Tab „Hardware" ein Steuergerät an. ${this._docsBtn("erste-box/", "📖 Erste Schritte")}</div>`;
-    return this._listHeader("Bewässerungslinien", "line") + `<section class="cardbox">${body}</section>`;
+        ? `<div class="empty">${esc(t("panel.lines.empty"))}</div>`
+        : `<div class="empty">${esc(t("panel.lines.empty_no_box"))} ${this._docsBtn("erste-box/", t("panel.lines.docs_first_steps"))}</div>`;
+    return this._listHeader(t("panel.lines.title"), "line") + `<section class="cardbox">${body}</section>`;
   }
 
   // Steuerungen = kind=switch lines (fountain, camera, …); same store, own tab (FR-SW1).
@@ -712,20 +940,20 @@ class GardenEspPanel extends HTMLElement {
           const box = (cfg.boxes || {})[ln.box_id];
           const out = this._outputName(cfg, ln.box_id, ln.valve_output);
           const dash = ln.show_on_dashboard !== false
-            ? `<span class="chip ok">Dashboard</span>`
-            : `<span class="chip">nicht im Dashboard</span>`;
+            ? `<span class="chip ok">${esc(t("panel.controls.on_dashboard"))}</span>`
+            : `<span class="chip">${esc(t("panel.controls.not_on_dashboard"))}</span>`;
           return `<div class="row"><div class="grow">
             <div class="title">${esc(ln.name || ln.id)} ${this._autoChip(ln)} ${dash}</div>
-            <div class="sub">${box ? esc(box.name) : "keine Box"} · ${out ? esc(out) : "kein Ausgang"}</div>
+            <div class="sub">${box ? esc(box.name) : esc(t("panel.list.no_box"))} · ${out ? esc(out) : esc(t("panel.controls.no_output"))}</div>
             ${this._controlEntity(ln)}
             <div class="schedchips">${this._scheduleChips(ln)}</div>
             ${this._stamps(ln)}
             ${this._idLine(ln.id)}</div>
             ${this._autoToggle(ln)}
-            <button class="btn" data-editcontrol="${esc(ln.id)}">Bearbeiten</button></div>`;
+            <button class="btn" data-editcontrol="${esc(ln.id)}">${esc(t("panel.action.edit"))}</button></div>`;
         }).join("")
-      : `<div class="empty">Noch keine Steuerungen. „+ Neu" legt einen schaltbaren Ausgang an (Springbrunnen, Kamera …).</div>`;
-    return this._listHeader("Steuerungen", "control") + `<section class="cardbox">${body}</section>`;
+      : `<div class="empty">${esc(t("panel.controls.empty"))}</div>`;
+    return this._listHeader(t("panel.controls.title"), "control") + `<section class="cardbox">${body}</section>`;
   }
 
   _outputName(cfg, boxId, ref) {
@@ -738,7 +966,7 @@ class GardenEspPanel extends HTMLElement {
   _controlEntity(ln) {
     const out = this._outputByRef(ln.valve_output);
     const eid = out && out.entity;
-    return `<div class="srcents"><span class="srcent"><span class="cl">Ausgang</span> ` +
+    return `<div class="srcents"><span class="srcent"><span class="cl">${esc(t("panel.controls.output"))}</span> ` +
       `<span class="ent">${eid ? esc(eid) : "—"}</span></span></div>`;
   }
 
@@ -746,13 +974,13 @@ class GardenEspPanel extends HTMLElement {
     const sources = Object.values(cfg.sources || {});
     const body = sources.length
       ? sources.map((s) => `<div class="row"><div class="grow">
-          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${SOURCE_TYPE[s.type] || s.type}</span>${this._sourceDisabled(s) ? `<span class="chip estop">Steuergerät deaktiviert</span>` : ""}${this._rangeChip(s)}</div>
-          <div class="sub">${s.type === "cistern" ? `Max ${s.max_volume_l || "?"} L · min ${s.min_fill_pct || 0} %${Number(s.level_deadband_l) > 0 ? ` · Totband ±${s.level_deadband_l} L` : ""}` : `${s.pulse_factor} L/Impuls`}${this._sourceLevel(s)}</div>
+          <div class="title">${esc(s.name || s.id)}<span class="tag muted">${esc(sourceTypeLabel(s.type))}</span>${this._sourceDisabled(s) ? `<span class="chip estop">${esc(t("panel.sources.box_disabled"))}</span>` : ""}${this._rangeChip(s)}</div>
+          <div class="sub">${esc(this._sourceSummary(s))}${this._sourceLevel(s)}</div>
           ${this._sourceEntities(s)}
           ${this._stamps(s)}</div>
-          <button class="btn" data-editsource="${esc(s.id)}">Bearbeiten</button></div>`).join("")
-      : `<div class="empty">Noch keine Quellen.</div>`;
-    return this._listHeader("Wasserquellen", "source") + `<section class="cardbox">${body}</section>`;
+          <button class="btn" data-editsource="${esc(s.id)}">${esc(t("panel.action.edit"))}</button></div>`).join("")
+      : `<div class="empty">${esc(t("panel.sources.empty"))}</div>`;
+    return this._listHeader(t("panel.sources.title"), "source") + `<section class="cardbox">${body}</section>`;
   }
   // A source follows its hardware: out of service if any referenced box
   // (Pegel-Sensor / Zähler / Pumpe) is deactivated.
@@ -773,10 +1001,8 @@ class GardenEspPanel extends HTMLElement {
     const below = side === "below";
     return {
       side,
-      chip: below ? "⚠ Rohwert unter der Kalibrierung" : "⚠ Rohwert über der Kalibrierung",
-      text: `Der Messwert liegt ${below ? "unter dem untersten" : "über dem obersten"} Stützpunkt. ` +
-        `Der Füllstand bleibt deshalb auf dessen Literwert stehen: Läufe buchen 0 L Verbrauch und ` +
-        `der Mindest-Füllstand kann nicht mehr greifen. Stützpunkt ${below ? "darunter" : "darüber"} ergänzen.`,
+      chip: t(below ? "common.calib.chip_below" : "common.calib.chip_above"),
+      text: t(below ? "panel.cal.range_below" : "panel.cal.range_above"),
     };
   }
   _rangeChip(s) {
@@ -791,6 +1017,19 @@ class GardenEspPanel extends HTMLElement {
     const box = (this._cfg().boxes || {})[boxId];
     return box ? (box.inputs || []).find((i) => i.id === local) || null : null;
   }
+  // Left half of the sources sub-line: the configured facts. Cistern → capacity,
+  // minimum fill and (if set) the dead band; mains → the pulse factor. Volumes go
+  // through vol() so a US install reads gallons; the pulse factor stays metric —
+  // it is a stored configuration value, not a reading.
+  _sourceSummary(s) {
+    if (s.type !== "cistern")
+      return t("panel.sources.pulse_factor", { v: fmtNum(s.pulse_factor) });
+    const max = s.max_volume_l ? vol(s.max_volume_l) : "?";
+    let out = t("panel.sources.summary_cistern", { max, pct: fmtNum(s.min_fill_pct || 0) });
+    if (Number(s.level_deadband_l) > 0)
+      out += " · " + t("panel.sources.deadband", { v: vol(s.level_deadband_l) });
+    return out;
+  }
   // Current "Stand" for the sources overview: cistern → liters/Max + %, mains →
   // cumulative meter reading (entity × Faktor). Empty when no live value yet.
   _sourceLevel(s) {
@@ -804,30 +1043,30 @@ class GardenEspPanel extends HTMLElement {
       // Only the fill level (liters); Max/min stehen schon links davor, Prozent nur
       // im Detail. Low-Warnung bleibt (via pct).
       const low = pct != null && s.min_fill_pct && pct < s.min_fill_pct;
-      return `<span class="srcval ${low ? "low" : ""}">${esc(Math.round(level))} L${low ? " ⚠" : ""}</span>`;
+      return `<span class="srcval ${low ? "low" : ""}">${esc(vol(level))}${low ? " ⚠" : ""}</span>`;
     }
     const inp = this._inputByRef(s.meter_input);
     const st = inp && this._entityState(inp.entity);
     const liters = st ? parseFloat(st.state) : NaN;
     if (isNaN(liters)) return "";
-    return `<span class="srcval">${esc(Math.round(liters * (s.pulse_factor || 1)))} L</span>`;
+    return `<span class="srcval">${esc(vol(liters * (s.pulse_factor || 1)))}</span>`;
   }
 
   _fmtStamp(iso) {
     if (!iso) return "—";
     const d = new Date(iso);
     if (isNaN(d)) return "—";
-    return d.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+    return fmtDateTime(d, { dateStyle: "short", timeStyle: "short" });
   }
   _stamps(o) {
     if (!o.created_at && !o.updated_at) return "";
-    return `<div class="boxstamp">Erstellt: ${esc(this._fmtStamp(o.created_at))}` +
-      ` · Letzte Änderung: ${esc(this._fmtStamp(o.updated_at))}</div>`;
+    return `<div class="boxstamp">${esc(t("panel.stamp.created", { at: this._fmtStamp(o.created_at) }))}` +
+      ` · ${esc(t("panel.stamp.updated", { at: this._fmtStamp(o.updated_at) }))}</div>`;
   }
   // Raw storage id — needed for the gardenesp.start_line / stop_line services
   // (own irrigation logic from HA automations, FR-X3b).
   _idLine(id) {
-    return `<div class="objid">ID (für Dienst): <code>${esc(id)}</code></div>`;
+    return `<div class="objid">${esc(t("panel.label.service_id"))} <code>${esc(id)}</code></div>`;
   }
   // Resolved HA entity_ids of a source's referenced box in-/outputs (FR-X1): the
   // level/meter sensor and the pump switch — shown read-only in the Quellen overview.
@@ -835,11 +1074,11 @@ class GardenEspPanel extends HTMLElement {
     const rows = [];
     const inRef = s.type === "cistern" ? s.level_input : s.meter_input;
     const inp = this._inputByRef(inRef);
-    const inLabel = s.type === "cistern" ? "Pegel" : "Zähler";
+    const inLabel = t(s.type === "cistern" ? "panel.sources.level" : "panel.sources.meter");
     if (inRef) rows.push([inLabel, inp && inp.entity]);
     if (s.pump_output) {
       const out = this._outputByRef(s.pump_output);
-      rows.push(["Pumpe", out && out.entity]);
+      rows.push([t("panel.sources.pump"), out && out.entity]);
     }
     if (!rows.length) return "";
     return `<div class="srcents">${rows.map(([k, e]) =>
@@ -863,18 +1102,21 @@ class GardenEspPanel extends HTMLElement {
     const limit = emerg - 1;
     const bad = [];
     const md = Number(d.manual_default_min) || 0;
-    if (md > limit) bad.push(`manuell ${fmtDur(md)}`);
+    if (md > limit) bad.push(t("panel.warn.runtime_manual", { dur: fmtDur(md) }));
     (d.schedule || []).forEach((e) => {
       if (e.enabled === false) return;
       const dm = Number(e.duration_min) || 0;
-      if (dm > limit) bad.push(`Zeitplan ${e.time || "—"} ${fmtDur(dm)}`);
+      if (dm > limit) bad.push(t("panel.warn.runtime_schedule", { time: e.time || "—", dur: fmtDur(dm) }));
     });
     if (!bad.length) return "";
-    return `<div class="formwarn">⚠ <b>Laufzeit kollidiert mit der Notabschaltung.</b> ` +
-      `Das Ventil „${esc(out.name || out.id)}“ schaltet nach <b>${emerg} min</b> per Notabschaltung ab. ` +
-      `Diese Dauer(n) lassen unter 1 min Reserve (> ${limit} min) und werden als „Notabschaltung“ geloggt: ` +
-      `<b>${esc(bad.join(", "))}</b>. Dauer unter ${limit} min setzen oder die Notabschaltung des ` +
-      `Ausgangs im Steuergerät-Editor erhöhen.</div>`;
+    // The catalog value carries the <b> emphasis, so the result is inserted raw —
+    // every interpolated value is esc()'d here instead (t() does not escape).
+    return `<div class="formwarn">${t("panel.warn.runtime", {
+      valve: esc(out.name || out.id),
+      emerg: fmtNum(emerg),
+      limit: fmtNum(limit),
+      list: esc(bad.join(", ")),
+    })}</div>`;
   }
   // Short valve id (A5 = box label + valve channel; FDS §4.1) for a line's
   // valve_output ref — same label the dashboard card shows before the name.
@@ -902,34 +1144,36 @@ class GardenEspPanel extends HTMLElement {
   // Compact "Automatik" state chip (green on / red off) — like the box Not-Aus chip.
   _autoChip(ln) {
     return ln.automatic
-      ? `<span class="chip ok">Automatik ein</span>`
-      : `<span class="chip estop">Automatik aus</span>`;
+      ? `<span class="chip ok">${esc(t("panel.auto.on"))}</span>`
+      : `<span class="chip estop">${esc(t("panel.auto.off"))}</span>`;
   }
   // Interactive on/off switch at the row's right end — toggles `automatic` and
   // persists immediately (no need to open the editor).
   _autoToggle(ln) {
-    return `<label class="lineauto ${ln.automatic ? "on" : "off"}" title="Automatik ein/aus">
+    return `<label class="lineauto ${ln.automatic ? "on" : "off"}" title="${esc(t("panel.auto.toggle_title"))}">
       <input type="checkbox" data-toggleauto="${esc(ln.id)}" ${ln.automatic ? "checked" : ""}>
-      <span>Automatik</span></label>`;
+      <span>${esc(t("panel.label.automatic"))}</span></label>`;
   }
   _toggleLineAuto(id, checked) {
     const ln = (this._cfg().lines || {})[id];
     if (!ln) return;
-    this._action({ type: "gardenesp/upsert", kind: "line", data: { ...ln, automatic: checked } }, "Automatik");
+    this._action({ type: "gardenesp/upsert", kind: "line", data: { ...ln, automatic: checked } }, t("panel.label.automatic"));
   }
   // One small chip per schedule entry, each tagged with a coloured aktiv/inaktiv box.
   _scheduleChips(ln) {
     const entries = ln.schedule || [];
-    if (!entries.length) return `<span class="muted">kein Zeitplan</span>`;
+    if (!entries.length) return `<span class="muted">${esc(t("panel.sched.none"))}</span>`;
     return entries.map((e) => {
       const days = e.repeat === "weekly"
-        ? (e.weekdays || []).map((w) => WEEKDAY_LABEL[w] || w).join(",")
+        // Display order follows the locale's first weekday; the stored list keeps
+        // its canonical mo..su order (schedule.py depends on the keys, not order).
+        ? weekdayOrder().filter((w) => (e.weekdays || []).includes(w)).map(weekdayLabel).join(",")
         : e.repeat === "monthly"
-          ? `${(e.monthdays || []).join(",")}.`
-          : "tägl.";
-      const txt = `${days} ${e.time || "—"} · ${e.duration_min || 0}′`;
+          ? `${(e.monthdays || []).map((n) => fmtNum(n)).join(",")}.`
+          : t("panel.sched.daily_short");
+      const txt = `${days} ${e.time || "—"} · ${fmtNum(e.duration_min || 0)}′`;
       const active = e.enabled !== false;
-      const state = `<span class="schedstate ${active ? "on" : "off"}">${active ? "aktiv" : "inaktiv"}</span>`;
+      const state = `<span class="schedstate ${active ? "on" : "off"}">${esc(t(active ? "panel.sched.active" : "panel.sched.inactive"))}</span>`;
       return `<span class="schedchip">${state} ${esc(txt)}</span>`;
     }).join("");
   }
@@ -946,38 +1190,36 @@ class GardenEspPanel extends HTMLElement {
           // Zone „Steuerung" (logisch) · Zone Plattformname (physisches Board).
           return `<div class="boxcard${b.enabled === false ? " off" : ""}">
             <div class="boxhead">
-              <div class="title">Steuergerät ${b.label ? `<span class="chip">${esc(String(b.label).toUpperCase())}</span> ` : ""}${esc(b.name || b.id)}</div>
+              <div class="title">${esc(t("panel.box.heading"))} ${b.label ? `<span class="chip">${esc(String(b.label).toUpperCase())}</span> ` : ""}${esc(b.name || b.id)}</div>
               <div class="headacts">
-                <button class="btn" data-editbox="${esc(b.id)}">Bearbeiten</button>
-                ${admin ? `<button class="btn ghost" data-yaml="${esc(b.id)}" title="ESPHome-YAML (Admin)">🔒 YAML</button>` : ""}
+                <button class="btn" data-editbox="${esc(b.id)}">${esc(t("panel.action.edit"))}</button>
+                ${admin ? `<button class="btn ghost" data-yaml="${esc(b.id)}" title="${esc(t("panel.box.yaml_title"))}">${esc(t("panel.box.yaml_btn"))}</button>` : ""}
               </div>
             </div>
             <div class="zone">
               <div class="zonebody">
-                <div class="zonestat">${this._boxEnabledToggle(b)}<span class="muted">${valves} Ventile · ${pumps} Pumpen · ${(b.inputs || []).length} Eingänge</span></div>
+                <div class="zonestat">${this._boxEnabledToggle(b)}<span class="muted">${esc(t("panel.box.io_summary", { valves: fmtNum(valves), pumps: fmtNum(pumps), inputs: fmtNum((b.inputs || []).length) }))}</span></div>
                 ${this._stamps(b)}
               </div>
             </div>
             <div class="zone">
               <div class="zonelabel"><ha-icon icon="mdi:chip"></ha-icon> ${esc(this._platformName(b.hw_type))}
-                <button class="btn ghost wirebtn" data-wiring="${esc(b.id)}" title="Verdrahtung anzeigen">🔌 Verdrahtung</button></div>
+                <button class="btn ghost wirebtn" data-wiring="${esc(b.id)}" title="${esc(t("panel.box.wiring_title"))}">${esc(t("panel.box.wiring_btn"))}</button></div>
               <div class="zonebody">
                 <div class="zonestat">${this._onlineChip(b)}${this._fwChip(b)}</div>
                 ${this._boxDeviceMeta(b)}
                 ${this._boardFaults(b)}
                 ${this._boxDiag(b)}
-                ${outs ? `<div class="grouplabel">Ausgänge</div>${outs}` : ""}
-                ${ins ? `<div class="grouplabel">Eingänge</div>${ins}` : ""}
+                ${outs ? `<div class="grouplabel">${esc(t("panel.box.outputs"))}</div>${outs}` : ""}
+                ${ins ? `<div class="grouplabel">${esc(t("panel.box.inputs"))}</div>${ins}` : ""}
               </div>
             </div>
           </div>`;
         }).join("")
       : `<div class="empty onboard">
-          <p><strong>Willkommen bei GardenESP 🌱</strong></p>
-          <p>Lege zuerst ein <strong>Steuergerät</strong> (deinen ESP-Controller) mit seinen Ein-/Ausgängen an,
-             generiere das ESPHome-YAML und flashe es. Die Schritt-für-Schritt-Anleitung inkl. erstem
-             Flash steht in der Online-Hilfe.</p>
-          <p>${this._docsBtn("erste-box/", "📖 Anleitung: Erstes Steuergerät & Flash", "primary")}</p>
+          <p><strong>${esc(t("panel.box.onboard_title", { app: APP_NAME }))}</strong></p>
+          <p>${t("panel.box.onboard_text")}</p>
+          <p>${this._docsBtn("erste-box/", t("panel.box.onboard_docs"), "primary")}</p>
         </div>`;
     return this._listHeader("", "box") +
       `<section class="cardbox boxlist">${body}</section>`;
@@ -987,10 +1229,10 @@ class GardenEspPanel extends HTMLElement {
   // box should be running (Steuerung in Betrieb), else neutral grey; no device = gelb.
   _onlineChip(b) {
     const online = this._val(b.id, "online");
-    if (online === true) return `<span class="chip ok">● Online</span>`;
-    if (online == null) return `<span class="chip warn" title="Steuergerät ist in HA nicht als ESPHome-Gerät eingebunden">○ kein Gerät</span>`;
+    if (online === true) return `<span class="chip ok">● ${esc(t("panel.box.online"))}</span>`;
+    if (online == null) return `<span class="chip warn" title="${esc(t("panel.box.no_device_title"))}">○ ${esc(t("panel.box.no_device"))}</span>`;
     const cls = b.enabled === false ? "" : "estop";
-    return `<span class="chip ${cls}">○ Offline</span>`;
+    return `<span class="chip ${cls}">○ ${esc(t("panel.box.offline"))}</span>`;
   }
   // Board details line: node name · IP · flashed firmware version.
   _boxDeviceMeta(b) {
@@ -1014,10 +1256,10 @@ class GardenEspPanel extends HTMLElement {
     const items = faults.map((f) => {
       const st = this._entityState(f.entity);
       const cls = !st ? "na" : st.state === "on" ? "bad" : "ok";
-      const title = !st ? "unbekannt" : st.state === "on" ? "Störung" : "ok";
-      return `${esc(f.label)} <span class="faultdot ${cls}" title="${title}"></span>`;
+      const title = t(!st ? "panel.box.fault_unknown" : st.state === "on" ? "panel.box.fault_bad" : "panel.box.fault_ok");
+      return `${esc(f.label)} <span class="faultdot ${cls}" title="${esc(title)}"></span>`;
     });
-    return `<div class="zonemeta faultrow"><ha-icon class="diagicon" icon="mdi:alert-decagram-outline" title="Board-Selbstdiagnose"></ha-icon>${items.join(" · ")}</div>`;
+    return `<div class="zonemeta faultrow"><ha-icon class="diagicon" icon="mdi:alert-decagram-outline" title="${esc(t("panel.box.faults_title"))}"></ha-icon>${items.join(" · ")}</div>`;
   }
   // Board diagnostics (FR-S13): WLAN signal + restarts today/yesterday — neutral
   // live info (System B), not an Ampel status. Missing values are simply omitted.
@@ -1034,11 +1276,11 @@ class GardenEspPanel extends HTMLElement {
     const parts = [];
     if (sig != null)
       parts.push(
-        `<ha-icon class="diagicon" icon="${this._wifiIcon(sig)}" title="WLAN-Signal"></ha-icon>${Math.round(sig)} dBm`
+        `<ha-icon class="diagicon" icon="${this._wifiIcon(sig)}" title="${esc(t("panel.box.wifi_title"))}"></ha-icon>${esc(fmtNum(Math.round(sig)))} dBm`
       );
     if (rt != null || ry != null)
       parts.push(
-        `<ha-icon class="diagicon" icon="mdi:restart" title="Neustarts heute / gestern"></ha-icon>heute ${rt ?? "–"} · gestern ${ry ?? "–"}`
+        `<ha-icon class="diagicon" icon="mdi:restart" title="${esc(t("panel.box.restarts_title"))}"></ha-icon>${esc(t("panel.box.restarts", { today: rt == null ? "–" : fmtNum(rt), yesterday: ry == null ? "–" : fmtNum(ry) }))}`
       );
     // Last reset reason (roadmap #20) — neutral live text; the dashboard card only
     // flags fault causes (brownout/watchdog/panic), here we always show it. The
@@ -1046,7 +1288,7 @@ class GardenEspPanel extends HTMLElement {
     // line — it is the cause of the *latest* boot, not a third day bucket.
     if (reset)
       parts.push(
-        `<ha-icon class="diagicon" icon="mdi:restart-alert" title="Letzter Reset-Grund"></ha-icon>zuletzt: ${esc(reset)}`
+        `<ha-icon class="diagicon" icon="mdi:restart-alert" title="${esc(t("panel.box.reset_title"))}"></ha-icon>${esc(t("panel.box.reset", { reason: reset }))}`
       );
     return parts.length ? `<div class="zonemeta diagrow">${parts.join(" · ")}</div>` : "";
   }
@@ -1055,45 +1297,46 @@ class GardenEspPanel extends HTMLElement {
     if (b.enabled === false) return "";  // außer Betrieb → Firmware irrelevant, keine Warnung
     const st = this._val(b.id, "fw_status");
     if (!st) return "";
-    const f = FW_STATUS[st] || { label: st, cls: "" };
-    return `<span class="chip ${f.cls}" title="Firmware-Status (Generator-Hash ↔ geflashte Box)">${esc(f.label)}</span>`;
+    const known = FW_STATUS_CLS[st] != null;
+    return `<span class="chip ${known ? FW_STATUS_CLS[st] : ""}" title="${esc(t("panel.box.fw_title"))}">` +
+      `${esc(known ? t(`panel.fw.${st}`) : st)}</span>`;
   }
   // Firmware-drift banner in the tab bar (right of the tabs, centered in the
   // remaining space; ellipsized with the full text on hover). Click → Boxen tab (#9d).
   _fwBanner() {
     const names = Object.values(this._cfg().boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
-      .map((b) => b.label ? `Steuergerät ${String(b.label).toUpperCase()}` : (b.name || b.id));
+      .map((b) => b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : (b.name || b.id));
     if (!names.length) return "";
-    const txt = `⚠ Flashen ausstehend: ${names.join(" · ")}`;
+    const txt = t("common.banner.flash_pending", { names: names.join(" · ") });
     return `<span class="fwslot"><span class="fwbanner" data-tab="boxes" title="${esc(txt)}">${esc(txt)}</span></span>`;
   }
   // Labeled in-service toggle — state + colour + control in one (System A §3.1):
   // grün „In Betrieb" / grau „Außer Betrieb". Replaces a separate state chip.
   _boxEnabledToggle(b) {
     const on = b.enabled !== false;
-    return `<label class="boxswitch ${on ? "on" : "off"}" title="In Betrieb / Außer Betrieb umschalten">
+    return `<label class="boxswitch ${on ? "on" : "off"}" title="${esc(t("panel.box.toggle_title"))}">
       <input type="checkbox" data-toggleboxen="${esc(b.id)}" ${on ? "checked" : ""}>
-      <span>${on ? "In Betrieb" : "Außer Betrieb"}</span></label>`;
+      <span>${esc(t(on ? "panel.box.in_service" : "panel.box.out_of_service"))}</span></label>`;
   }
   _toggleBoxEnabled(id, checked) {
     const b = (this._cfg().boxes || {})[id];
     if (!b) return;
-    this._action({ type: "gardenesp/upsert", kind: "box", data: { ...b, enabled: checked } }, "Box");
+    this._action({ type: "gardenesp/upsert", kind: "box", data: { ...b, enabled: checked } }, t("panel.kind.box"));
   }
   _polarityLabel(b, o) {
-    if (b.hw_type === "gardencontrol") return "aktiv-HIGH";
-    return o.relais_off === "LOW" ? "aktiv-HIGH" : "aktiv-LOW";
+    if (b.hw_type === "gardencontrol" || o.relais_off === "LOW") return t("panel.polarity.active_high");
+    return t("panel.polarity.active_low");
   }
   _drivenList(b, o) {
     const out = [];
     if (o.type === "valve") {
       const pump = this._autoPumpOutput(b, o);
-      if (pump) out.push({ label: this._channelLabel(b, pump), name: pump.name || pump.id, kind: "auto" });
+      if (pump) out.push({ label: this._channelLabel(b, pump), name: pump.name || pump.id, kind: t("panel.conn.auto") });
     }
     for (const cid of o.connected || []) {
-      const t = (b.outputs || []).find((x) => x.id === cid);
-      if (t) out.push({ label: this._channelLabel(b, t), name: t.name || t.id, kind: "manuell" });
+      const tgt = (b.outputs || []).find((x) => x.id === cid);
+      if (tgt) out.push({ label: this._channelLabel(b, tgt), name: tgt.name || tgt.id, kind: t("panel.conn.manual") });
     }
     return out;
   }
@@ -1104,25 +1347,25 @@ class GardenEspPanel extends HTMLElement {
     return `<div class="devrow">
       <span class="chip">${esc(this._channelLabel(b, o))}</span>
       <span class="dname">${esc(o.name || o.id)}</span>
-      <span class="muted">${esc(OUTPUT_TYPE[o.type] || o.type)}</span>
+      <span class="muted">${esc(OUTPUT_TYPES.includes(o.type) ? t(`panel.output_type.${o.type}`) : o.type)}</span>
       ${this._outState(b, o)}
       <span class="ent">${o.entity ? esc(o.entity) : "—"}</span>
       <span class="muted">${esc(this._polarityLabel(b, o))}</span>
-      ${o.emergency_shutdown_min ? `<span class="chip estop" title="Emergency Shutdown (Not-Aus)">Not-Aus ${esc(String(o.emergency_shutdown_min))} min</span>` : ""}
+      ${o.emergency_shutdown_min ? `<span class="chip estop" title="${esc(t("panel.box.emergency_title"))}">${esc(t("panel.box.emergency_chip", { min: fmtNum(o.emergency_shutdown_min) }))}</span>` : ""}
     </div>${conn}`;
   }
   _boxInRow(b, inp) {
     let param = "";
-    if (inp.kind === "rain") param = inp.inverted ? "Schließer (NO)" : "Öffner (NC)";
-    else if (inp.kind === "soil_moisture") param = `Schwelle ${inp.threshold_pct || 0} %`;
-    else if (inp.kind === "button" && inp.inverted) param = "invertiert";
+    if (inp.kind === "rain") param = t(inp.inverted ? "panel.input.contact_no" : "panel.input.contact_nc");
+    else if (inp.kind === "soil_moisture") param = t("panel.input.threshold", { pct: fmtNum(inp.threshold_pct || 0) });
+    else if (inp.kind === "button" && inp.inverted) param = t("panel.input.inverted");
     // analog inputs (pressure/soil) may carry an on-device smoothing window (FR-S16)
     if ((inp.kind === "pressure" || inp.kind === "soil_moisture") && Number(inp.smoothing_s) > 0)
-      param = (param ? param + " · " : "") + `Glättung ${inp.smoothing_s} s`;
+      param = (param ? param + " · " : "") + t("panel.input.smoothing", { s: fmtNum(inp.smoothing_s) });
     return `<div class="devrow">
       <span class="chip">${esc(this._inputPinLabel(inp.pin, b.hw_type))}</span>
       <span class="dname">${esc(inp.name || inp.id)}</span>
-      <span class="muted">${esc(INPUT_KIND[inp.kind] || inp.kind)}</span>
+      <span class="muted">${esc(INPUT_KINDS.includes(inp.kind) ? t(`panel.input_kind.${inp.kind}`) : inp.kind)}</span>
       ${this._inState(b, inp)}
       <span class="ent">${inp.entity ? esc(inp.entity) : "—"}</span>
       ${param ? `<span class="muted">${esc(param)}</span>` : ""}
@@ -1130,30 +1373,32 @@ class GardenEspPanel extends HTMLElement {
   }
   // Live output switch state (on/off) from the resolved ESPHome entity.
   _outState(b, o) {
-    if (!b.enabled) return `<span class="live off">deaktiviert</span>`;
+    if (!b.enabled) return `<span class="live off">${esc(t("panel.box.disabled"))}</span>`;
     const st = this._entityState(o.entity);
     if (!st) return `<span class="live muted">—</span>`;
     const on = st.state === "on";
-    return `<span class="live ${on ? "on" : "off"}" title="aktueller Schaltzustand">${on ? "● an" : "○ aus"}</span>`;
+    return `<span class="live ${on ? "on" : "off"}" title="${esc(t("panel.box.state_title"))}">${on ? "●" : "○"} ${esc(t(on ? "panel.box.on" : "panel.box.off"))}</span>`;
   }
   // Live input value: rain → nass/trocken, sensors → number + unit.
   _inState(b, inp) {
-    if (!b.enabled) return `<span class="live muted">deaktiviert</span>`;
+    if (!b.enabled) return `<span class="live muted">${esc(t("panel.box.disabled"))}</span>`;
     const st = this._entityState(inp.entity);
     if (!st) return `<span class="live muted">—</span>`;
     if (inp.kind === "rain") {
       const wet = st.state === "on";
-      return `<span class="live ${wet ? "wet" : ""}" title="aktueller Wert">${wet ? "nass" : "trocken"}</span>`;
+      return `<span class="live ${wet ? "wet" : ""}" title="${esc(t("panel.box.value_title"))}">${esc(t(wet ? "enum.sensor.wet" : "enum.sensor.dry"))}</span>`;
     }
     if (inp.kind === "button") {
       const on = st.state === "on";
-      return `<span class="live ${on ? "on" : "off"}" title="aktueller Wert">${on ? "● an" : "○ aus"}</span>`;
+      return `<span class="live ${on ? "on" : "off"}" title="${esc(t("panel.box.value_title"))}">${on ? "●" : "○"} ${esc(t(on ? "panel.box.on" : "panel.box.off"))}</span>`;
     }
     const unit = (st.attributes && st.attributes.unit_of_measurement) || "";
     const num = parseFloat(st.state);
     // 4-20 mA pressure sensor drifts by hundredths → 3 decimals; everything else 1.
-    const val = isNaN(num) ? st.state : (unit === "mA" ? num.toFixed(3) : Math.round(num * 10) / 10);
-    return `<span class="live" title="aktueller Wert">${esc(val)}${unit ? " " + esc(unit) : ""}</span>`;
+    const val = isNaN(num)
+      ? st.state
+      : fmtNum(num, unit === "mA" ? { minimumFractionDigits: 3, maximumFractionDigits: 3 } : { maximumFractionDigits: 1 });
+    return `<span class="live" title="${esc(t("panel.box.value_title"))}">${esc(val)}${unit ? " " + esc(unit) : ""}</span>`;
   }
 
   _generalView(cfg) {
@@ -1165,55 +1410,52 @@ class GardenEspPanel extends HTMLElement {
       ? boxes
           .map(
             (b) =>
-              `<button class="btn ghost small" data-sync="${esc(b.id)}">⟳ ${b.label ? `[${esc(String(b.label).toUpperCase())}] ` : ""}${esc(b.name || b.id)} abgleichen</button>`,
+              `<button class="btn ghost small" data-sync="${esc(b.id)}">⟳ ${esc(t("panel.general.sync_btn", {
+                name: `${b.label ? `[${String(b.label).toUpperCase()}] ` : ""}${b.name || b.id}`,
+              }))}</button>`,
           )
           .join(" ")
-      : `<span class="sub muted">Noch keine Steuergeräte angelegt.</span>`;
+      : `<span class="sub muted">${esc(t("panel.general.no_boxes"))}</span>`;
     const builtin = `
-      <div class="row"><div class="grow"><div class="title">GardenControl<span class="tag muted">eingebaut</span></div>
-        <div class="sub">festes Profil: 12 Ventile (24 VAC) · 2 Relais (R1/R2, 230 V) · 2× 4-20 mA (IN1/IN2) · 4× ADC 0-12 V · 3× Binär (Regen/S0/Schalter)</div></div></div>
-      <div class="row"><div class="grow"><div class="title">ESP32-WROOM<span class="tag muted">eingebaut</span></div>
-        <div class="sub">generisch: GPIO je Aus-/Eingang frei zuweisbar</div></div></div>`;
+      <div class="row"><div class="grow"><div class="title">GardenControl<span class="tag muted">${esc(t("panel.general.builtin"))}</span></div>
+        <div class="sub">${esc(t("panel.general.gc_profile"))}</div></div></div>
+      <div class="row"><div class="grow"><div class="title">ESP32-WROOM<span class="tag muted">${esc(t("panel.general.builtin"))}</span></div>
+        <div class="sub">${esc(t("panel.general.wroom_profile"))}</div></div></div>`;
     const customRows = custom
       .map((p, i) => `<div class="subrow">
-        <input data-platname="${i}" value="${esc(p.name || "")}" placeholder="Plattform-Name">
-        <span class="sub">generisch (freie GPIO)</span>
+        <input data-platname="${i}" value="${esc(p.name || "")}" placeholder="${esc(t("panel.general.platform_name_ph"))}">
+        <span class="sub">${esc(t("panel.general.generic_free_gpio"))}</span>
         <button class="btn danger small" data-delplat="${i}">✕</button></div>`)
       .join("");
+    const posSelect = (key, dflt) =>
+      `<select data-setting-select="${key}">` +
+      ["before", "after"]
+        .map((v) => `<option value="${v}" ${(s[key] || dflt) === v ? "selected" : ""}>${esc(t(`panel.general.${v}_lines`))}</option>`)
+        .join("") +
+      `</select>`;
     return (
-      `<div class="listhead"><h2>Allgemein</h2></div>` +
+      `<div class="listhead"><h2>${esc(t("panel.general.title"))}</h2></div>` +
       `<section class="cardbox">` +
-      field("History-Aufbewahrung (Monate, 0 = unbegrenzt)", `<input type="number" min="0" data-setting="history_months" value="${esc(months)}">`) +
-      `<div class="field"><label>Deaktivierte Steuergeräte im Dashboard</label>
-        <div class="sub">Aus: Linien & Sensoren eines deaktivierten Steuergeräts werden ausgeblendet; stattdessen erscheint eine Zeile „Steuergerät deaktiviert". Ein: sie bleiben sichtbar (ausgegraut).</div>
-        <label class="chk"><input type="checkbox" data-setting-bool="show_disabled_box_entities" ${s.show_disabled_box_entities ? "checked" : ""}> Entities trotzdem anzeigen</label></div>` +
-      `<div class="field"><label>Reihenfolge im Dashboard</label>
-        <div class="sub">Position von Quellen und Sperr-Sensoren relativ zu den Linien. Steuerungen bleiben immer unten.</div>
-        <div class="subrow"><span class="grow">Quellen</span>
-          <select data-setting-select="sources_pos">
-            <option value="before" ${(s.sources_pos || "before") === "before" ? "selected" : ""}>vor Linien</option>
-            <option value="after" ${s.sources_pos === "after" ? "selected" : ""}>nach Linien</option></select></div>
-        <div class="subrow"><span class="grow">Sperr-Sensoren</span>
-          <select data-setting-select="sensors_pos">
-            <option value="after" ${(s.sensors_pos || "after") === "after" ? "selected" : ""}>nach Linien</option>
-            <option value="before" ${s.sensors_pos === "before" ? "selected" : ""}>vor Linien</option></select></div></div>` +
-      `<div class="field"><label>Plattformen</label>
-        <div class="sub">GardenControl & ESP32-WROOM sind eingebaut. Eigene (generische) Plattformen kannst du benennen — sie verhalten sich wie WROOM (GPIO frei).</div>
+      field(t("panel.general.history_months"), `<input type="number" min="0" data-setting="history_months" value="${esc(months)}">`) +
+      `<div class="field"><label>${esc(t("panel.general.disabled_boxes_label"))}</label>
+        <div class="sub">${esc(t("panel.general.disabled_boxes_hint"))}</div>
+        <label class="chk"><input type="checkbox" data-setting-bool="show_disabled_box_entities" ${s.show_disabled_box_entities ? "checked" : ""}> ${esc(t("panel.general.disabled_boxes_chk"))}</label></div>` +
+      `<div class="field"><label>${esc(t("panel.general.order_label"))}</label>
+        <div class="sub">${esc(t("panel.general.order_hint"))}</div>
+        <div class="subrow"><span class="grow">${esc(t("panel.general.order_sources"))}</span>
+          ${posSelect("sources_pos", "before")}</div>
+        <div class="subrow"><span class="grow">${esc(t("panel.general.order_sensors"))}</span>
+          ${posSelect("sensors_pos", "after")}</div></div>` +
+      `<div class="field"><label>${esc(t("panel.general.platforms_label"))}</label>
+        <div class="sub">${esc(t("panel.general.platforms_hint"))}</div>
         ${builtin}
         ${customRows}
-        <button class="btn ghost small" data-addplat>+ Eigene Plattform</button></div>` +
-      `<div class="actions"><button class="btn primary" data-savesettings>Speichern</button></div>` +
+        <button class="btn ghost small" data-addplat>${esc(t("panel.general.add_platform"))}</button></div>` +
+      `<div class="actions"><button class="btn primary" data-savesettings>${esc(t("panel.action.save"))}</button></div>` +
       `</section>` +
       `<section class="cardbox">` +
-      `<div class="field"><label>Entities abgleichen</label>
-        <div class="sub">Ordnet die Aus-/Eingänge eines Steuergeräts den echten ESPHome-Entities in HA zu (Abgleich über den Entity-<b>Namen</b>, nicht die <code>entity_id</code> — eine <code>entity_id</code> wird dabei <b>nie</b> geändert).
-        <b>Normalerweise nicht nötig:</b> der Abgleich läuft automatisch beim Speichern eines Steuergeräts, beim Start der Integration und nach jeder Änderung der ESPHome-Entities eines Steuergeräts (z. B. selbstheilend nach einem Flash, der Entities hinzufügt/umbenennt).
-        Manuell anstoßen ist sinnvoll, wenn:
-        <ul style="margin:.4em 0 0 1.1em;padding:0">
-          <li>ein Steuergerät gerade <b>neu in HA als ESPHome-Gerät hinzugefügt</b> wurde und die Zuordnung in der Hardware-Übersicht noch leer (<code>—</code>) ist;</li>
-          <li>du eine <b>Entity in HA umbenannt</b> hast und die Auflösung nicht sofort folgen soll/folgt;</li>
-          <li>etwas <b>nicht aufgelöst</b> aussieht (Dashboard/Übersicht zeigt <code>—</code>) und du eine sofortige Rückmeldung <code>x/y abgeglichen</code> willst.</li>
-        </ul></div>
+      `<div class="field"><label>${esc(t("panel.general.sync_label"))}</label>
+        <div class="sub">${t("panel.general.sync_hint")}</div>
         <div class="syncbtns" style="display:flex;flex-wrap:wrap;gap:.4em;margin-top:.5em">${syncButtons}</div></div>` +
       `</section>`
     );
@@ -1224,48 +1466,50 @@ class GardenEspPanel extends HTMLElement {
     const kind = this._editing.kind;
     const d = this._draft;
     const isNew = !d.id;
-    const titleMap = { line: "Linie", control: "Steuerung", source: "Quelle", box: "Steuergerät" };
+    const kindLabel = t(`panel.kind.${kind}`);
     let fields = "";
     if (kind === "line") fields = this._lineForm(d);
     else if (kind === "control") fields = this._controlForm(d);
     else if (kind === "source") fields = this._sourceForm(d);
     else if (kind === "box") fields = this._boxForm(d);
     return `<section class="cardbox form">
-      <div class="listhead"><h2>${isNew ? "Neue" : ""} ${titleMap[kind]}${isNew ? "" : ` „${esc(d.name || "")}"`}</h2></div>
+      <div class="listhead"><h2>${esc(isNew
+        ? t("panel.form.title_new", { kind: kindLabel })
+        : t("panel.form.title_edit", { kind: kindLabel, name: d.name || "" }))}</h2></div>
       ${fields}
       <div class="actions">
-        <button class="btn" data-cancel>Abbrechen</button>
-        ${!isNew ? `<button class="btn danger" data-del="${esc(d.id)}">Löschen</button>` : ""}
-        <button class="btn primary" data-savebtn>Speichern</button>
+        <button class="btn" data-cancel>${esc(t("panel.action.cancel"))}</button>
+        ${!isNew ? `<button class="btn danger" data-del="${esc(d.id)}">${esc(t("panel.action.delete"))}</button>` : ""}
+        <button class="btn primary" data-savebtn>${esc(t("panel.action.save"))}</button>
       </div></section>`;
   }
 
   // Box dropdown options "Kürzel · Name" — Kürzel prefixed like the dashboard chip
   // and the other ref selections, so the box is unambiguous (FR-D1/§4.1).
   _boxOptions() {
-    return [["", "— wählen —"], ...Object.values(this._cfg().boxes || {})
+    return [["", t("panel.select.choose")], ...Object.values(this._cfg().boxes || {})
       .map((b) => [b.id, `${b.label ? b.label + " · " : ""}${b.name}`])];
   }
   _lineForm(d) {
     const cfg = this._cfg();
     // Only offer valves of the line's selected box (pick the box first).
     const valveOpts = this._outputRefs("valve", d.box_id);
-    const srcOpts = [["", "— ohne Quelle —"], ...Object.values(cfg.sources || {}).map((s) => [s.id, s.name])];
-    const senOpts = [["", "— kein Sensor —"], ...this._sensorInputRefs()];
+    const srcOpts = [["", t("panel.select.no_source")], ...Object.values(cfg.sources || {}).map((s) => [s.id, s.name])];
+    const senOpts = [["", t("panel.select.no_sensor")], ...this._sensorInputRefs()];
     return (
-      field("Name", text("name", d.name)) +
-      field("Steuergerät", select("box_id", d.box_id, this._boxOptions())) +
-      field("Ventil-Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...valveOpts])) +
-      field("Wasserquelle", select("source_id", d.source_id, srcOpts)) +
-      field("Automatik", checkbox("automatic", d.automatic)) +
-      field("Sperr-Sensor", select("sensor_input", d.sensor_input, senOpts),
-        "Ohne Sensor wird die Linie nie gesperrt (bewässert immer).") +
-      field("Bewässern trotz Sperre (Automatik)", checkbox("sensor_override", d.sensor_override),
-        "Nur für Automatik/Zeitplan: wässert auch automatisch trotz nass/feucht. Manueller Start ignoriert den Sperr-Sensor ohnehin.") +
-      field("Default-Dauer manuell (min)", dur("manual_default_min", d.manual_default_min),
-        "Standard: Minuten (z. B. 5). Für Sekunden m:ss eingeben (z. B. 0:18 = 18 s, Gießkanne füllen).") +
-      field("Manuelle Entnahme: Nachlauf überspringen", checkbox("manual_skip_settle", d.manual_skip_settle),
-        "Für Schlauch-/Direktentnahme: bei manuellem Start kein Beruhigungs-Nachlauf der Quelle (sofort frei). Zisternen-Verbrauch dann nur ungefähr, Festwasser exakt.") +
+      field(t("panel.field.name"), text("name", d.name)) +
+      field(t("panel.field.box"), select("box_id", d.box_id, this._boxOptions())) +
+      field(t("panel.field.valve_output"), select("valve_output", d.valve_output, [["", t("panel.select.choose")], ...valveOpts])) +
+      field(t("panel.field.source"), select("source_id", d.source_id, srcOpts)) +
+      field(t("panel.field.automatic"), checkbox("automatic", d.automatic)) +
+      field(t("panel.field.sensor"), select("sensor_input", d.sensor_input, senOpts),
+        t("panel.field.sensor_hint")) +
+      field(t("panel.field.override"), checkbox("sensor_override", d.sensor_override),
+        t("panel.field.override_hint")) +
+      field(t("panel.field.manual_default"), dur("manual_default_min", d.manual_default_min),
+        t("panel.field.manual_default_hint")) +
+      field(t("panel.field.skip_settle"), checkbox("manual_skip_settle", d.manual_skip_settle),
+        t("panel.field.skip_settle_hint")) +
       this._scheduleEditor(d.schedule || []) +
       `<div data-runtimewarn>${this._runtimeWarning(d)}</div>`
     );
@@ -1276,16 +1520,16 @@ class GardenEspPanel extends HTMLElement {
     // A Steuerung drives an "other"/"pump"-type output (relais/GPIO load).
     const outOpts = this._outputRefs(["other", "pump"], d.box_id);
     return (
-      field("Name", text("name", d.name)) +
-      field("Steuergerät", select("box_id", d.box_id, this._boxOptions())) +
-      field("Ausgang", select("valve_output", d.valve_output, [["", "— wählen —"], ...outOpts]),
-        "Ein Steuergerät-Ausgang vom Typ „Sonstiges“ oder „Pumpe“ (z. B. Relais für Springbrunnen/Kamera). Im Steuergerät-Editor anlegen.") +
-      field("Automatik", checkbox("automatic", d.automatic)) +
-      field("Im Dashboard zeigen", checkbox("show_on_dashboard", d.show_on_dashboard),
-        "Aus = nur in den Einstellungen, nicht auf dem Dashboard.") +
-      field("Default-Dauer manuell (min)", dur("manual_default_min", d.manual_default_min),
-        "Standard: Minuten (z. B. 5). Für Sekunden m:ss eingeben (z. B. 0:18 = 18 s, Gießkanne füllen).") +
-      `<div class="sub" style="margin:-4px 0 8px">Zeitplan-Dauer <b>leer/0</b> = „an bis manuell gestoppt" (Dauerbetrieb). Für ein geplantes Aus eine reguläre Dauer setzen (an 20:00 für 600 min = aus 06:00).</div>` +
+      field(t("panel.field.name"), text("name", d.name)) +
+      field(t("panel.field.box"), select("box_id", d.box_id, this._boxOptions())) +
+      field(t("panel.field.output"), select("valve_output", d.valve_output, [["", t("panel.select.choose")], ...outOpts]),
+        t("panel.field.output_hint")) +
+      field(t("panel.field.automatic"), checkbox("automatic", d.automatic)) +
+      field(t("panel.field.show_on_dashboard"), checkbox("show_on_dashboard", d.show_on_dashboard),
+        t("panel.field.show_on_dashboard_hint")) +
+      field(t("panel.field.manual_default"), dur("manual_default_min", d.manual_default_min),
+        t("panel.field.manual_default_hint")) +
+      `<div class="sub" style="margin:-4px 0 8px">${t("panel.control.duration_hint")}</div>` +
       this._scheduleEditor(d.schedule || []) +
       `<div data-runtimewarn>${this._runtimeWarning(d)}</div>`
     );
@@ -1296,52 +1540,54 @@ class GardenEspPanel extends HTMLElement {
       .map((e, i) => {
         let extra = "";
         if (e.repeat === "weekly")
-          extra = `<div class="weekdays">${WEEKDAYS.map(
+          // Order follows `hass.locale.first_weekday`; the checkbox value stays the
+          // canonical storage key (schedule.py WEEKDAY_KEYS).
+          extra = `<div class="weekdays">${weekdayOrder().map(
             (w) => `<label class="wd ${(e.weekdays || []).includes(w) ? "on" : ""}">
-              <input type="checkbox" data-wd="${i}:${w}" ${(e.weekdays || []).includes(w) ? "checked" : ""}>${WEEKDAY_LABEL[w]}</label>`
+              <input type="checkbox" data-wd="${i}:${w}" ${(e.weekdays || []).includes(w) ? "checked" : ""}>${esc(weekdayLabel(w))}</label>`
           ).join("")}</div>`;
         else if (e.repeat === "monthly")
-          extra = field("Tag(e) im Monat", `<input data-path="schedule.${i}.monthdays" data-type="intlist" value="${esc((e.monthdays || []).join(", "))}" placeholder="1, 15">`);
+          extra = field(t("panel.sched.monthdays"), `<input data-path="schedule.${i}.monthdays" data-type="intlist" value="${esc((e.monthdays || []).join(", "))}" placeholder="1, 15">`);
         return `<div class="schedrow${e.enabled === false ? " disabled" : ""}">
           <div class="schedline">
-            <label class="chk schedon" title="Eintrag aktiv/inaktiv"><input type="checkbox" data-path="schedule.${i}.enabled" data-type="bool" ${e.enabled === false ? "" : "checked"}> aktiv</label>
-            ${select(`schedule.${i}.repeat`, e.repeat, Object.entries(REPEAT))}
-            <input type="time" data-path="schedule.${i}.time" data-type="str" value="${esc(e.time || "")}" title="Startzeit">
-            ${numInline(`schedule.${i}.duration_min`, e.duration_min, "Dauer min")}
+            <label class="chk schedon" title="${esc(t("panel.sched.entry_title"))}"><input type="checkbox" data-path="schedule.${i}.enabled" data-type="bool" ${e.enabled === false ? "" : "checked"}> ${esc(t("panel.sched.active"))}</label>
+            ${select(`schedule.${i}.repeat`, e.repeat, REPEATS.map((r) => [r, t(`panel.repeat.${r}`)]))}
+            <input type="time" data-path="schedule.${i}.time" data-type="str" value="${esc(e.time || "")}" title="${esc(t("panel.sched.time_title"))}">
+            ${numInline(`schedule.${i}.duration_min`, e.duration_min, t("panel.sched.duration_ph"))}
             <button class="btn danger small" data-delsched="${i}">✕</button>
           </div>${extra}</div>`;
       })
       .join("");
-    return `<div class="field"><label>Zeitplan</label>
-      <div class="sub">Pro Eintrag: Wiederholung · Startzeit · Dauer. Mehrere Zeiten = mehrere Einträge.</div>
-      <div class="sched">${rows || `<div class="empty">Keine Einträge.</div>`}
-      <button class="btn ghost small" data-addsched>+ Eintrag</button></div></div>`;
+    return `<div class="field"><label>${esc(t("panel.sched.label"))}</label>
+      <div class="sub">${esc(t("panel.sched.hint"))}</div>
+      <div class="sched">${rows || `<div class="empty">${esc(t("panel.sched.empty"))}</div>`}
+      <button class="btn ghost small" data-addsched>${esc(t("panel.sched.add"))}</button></div></div>`;
   }
 
   _sourceForm(d) {
     const isC = d.type === "cistern";
+    // Every editable volume stays **metric** (litres) — the display axis converts,
+ // the storage axis must not (i18n-concept §8); the labels say so explicitly.
     let body =
-      field("Name", text("name", d.name)) +
-      field("Typ", select("type", d.type, Object.entries(SOURCE_TYPE)));
+      field(t("panel.field.name"), text("name", d.name)) +
+      field(t("panel.field.type"), select("type", d.type, SOURCE_TYPES.map((x) => [x, sourceTypeLabel(x)])));
     if (isC) {
       body +=
-        field("Pegel-Eingang", select("level_input", d.level_input, [["", "— wählen —"], ...this._inputRefs("pressure")])) +
+        field(t("panel.field.level_input"), select("level_input", d.level_input, [["", t("panel.select.choose")], ...this._inputRefs("pressure")])) +
         this._calEditor(d) +
-        field("Max-Volumen (L)", num("max_volume_l", d.max_volume_l)) +
-        field("Mindest-Füllstand (%)", num("min_fill_pct", d.min_fill_pct)) +
-        field("Totband (L)", num("level_deadband_l", d.level_deadband_l, true),
-          "0 = aus. Der angezeigte Füllstand bleibt stehen, bis der Messwert um mindestens " +
-          "diesen Betrag davon abweicht — gegen Zappeln im Ruhezustand (z. B. 5 L). " +
-          "Wirkt sofort, kein Reflash nötig.") +
-        field("Pumpe", select("pump_output", d.pump_output, [["", "— keine —"], ...this._outputRefs("pump")])) +
-        field("Beruhigungszeit (min)", num("tank_settle_min", d.tank_settle_min)) +
-        field("Linear-Shortcut: Multiplier (L/Rohwert)", num("multiplier", d.multiplier, true),
-          "Nur wirksam, wenn KEINE Stützpunkt-Tabelle (≥ 2 Punkte) gesetzt ist.") +
-        field("Linear-Shortcut: Offset (L)", num("offset", d.offset, true));
+        field(t("panel.field.max_volume"), num("max_volume_l", d.max_volume_l)) +
+        field(t("panel.field.min_fill"), num("min_fill_pct", d.min_fill_pct)) +
+        field(t("panel.field.deadband"), num("level_deadband_l", d.level_deadband_l, true),
+          t("panel.field.deadband_hint")) +
+        field(t("panel.field.pump"), select("pump_output", d.pump_output, [["", t("panel.select.none")], ...this._outputRefs("pump")])) +
+        field(t("panel.field.settle"), num("tank_settle_min", d.tank_settle_min)) +
+        field(t("panel.field.multiplier"), num("multiplier", d.multiplier, true),
+          t("panel.field.multiplier_hint")) +
+        field(t("panel.field.offset"), num("offset", d.offset, true));
     } else {
       body +=
-        field("Literzähler-Eingang", select("meter_input", d.meter_input, [["", "— wählen —"], ...this._inputRefs("pulse_meter")])) +
-        field("Faktor (L/Impuls)", num("pulse_factor", d.pulse_factor, true));
+        field(t("panel.field.meter_input"), select("meter_input", d.meter_input, [["", t("panel.select.choose")], ...this._inputRefs("pulse_meter")])) +
+        field(t("panel.field.pulse_factor"), num("pulse_factor", d.pulse_factor, true));
     }
     return body;
   }
@@ -1350,34 +1596,28 @@ class GardenEspPanel extends HTMLElement {
   _calEditor(d) {
     const pts = d.calibration_points || [];
     const raw = d.id ? this._val(d.id, "level_raw") : null;
-    const rawTxt = raw == null ? "—" : Math.round(raw * 1000) / 1000;
+    const rawTxt = raw == null ? "—" : fmtNum(Math.round(raw * 1000) / 1000, { maximumFractionDigits: 3 });
     const rows = pts
       .map((p, i) => `<div class="calrow">
-        <input type="number" step="any" data-path="calibration_points.${i}.raw" data-type="float" value="${p.raw == null || p.raw === "" ? "" : esc(p.raw)}" placeholder="Rohwert">
+        <input type="number" step="any" data-path="calibration_points.${i}.raw" data-type="float" value="${p.raw == null || p.raw === "" ? "" : esc(p.raw)}" placeholder="${esc(t("panel.cal.raw_ph"))}">
         <span class="calarrow">→</span>
-        <input type="number" step="any" data-path="calibration_points.${i}.liters" data-type="float" value="${p.liters == null || p.liters === "" ? "" : esc(p.liters)}" placeholder="Liter">
+        <input type="number" step="any" data-path="calibration_points.${i}.liters" data-type="float" value="${p.liters == null || p.liters === "" ? "" : esc(p.liters)}" placeholder="${esc(t("panel.cal.liters_ph"))}">
         <button class="btn danger small" data-delcal="${i}">✕</button></div>`)
       .join("");
     const active = pts.filter((p) => p.raw !== "" && p.raw != null && p.liters !== "" && p.liters != null).length >= 2;
     const inp = this._inputByRef(d.level_input);
-    const ent = inp && inp.entity ? inp.entity : "Pegel-Sensor";
+    const ent = inp && inp.entity ? inp.entity : t("panel.cal.sensor_fallback");
     const warn = this._rangeWarn(d);
-    return `<div class="field"><label>Kalibrierung — Stützpunkte (Rohwert → Liter)</label>
+    return `<div class="field"><label>${esc(t("panel.cal.label"))}</label>
       ${warn ? `<div class="formwarn">${esc(warn.chip)} — ${esc(warn.text)}</div>` : ""}
-      <div class="hint">Der <b>Rohwert</b> ist der ungerechnete Live-Wert des Pegel-Sensors
-        (<code>${esc(ent)}</code>, bei generierter Firmware der rohe elektrische Messwert — ADC-Spannung
-        bzw. 4-20-mA-Strom, kein Druck/cm).
-        Ein Punkt verknüpft „Sensor zeigt X" mit „Tank hat Y Liter"; die Tabelle interpoliert
-        stückweise linear und faltet Sensor-Kennlinie + Tankform in eine Kurve.
-        ${active
-          ? "<b>Tabelle aktiv</b> (≥ 2 vollständige Punkte)."
-          : "Erst ab 2 vollständigen Punkten aktiv — sonst gilt der Linear-Shortcut unten."}
-        Aktueller Rohwert: <b>${esc(rawTxt)}</b></div>
+      <div class="hint">${t("panel.cal.hint", { entity: esc(ent) })}
+        ${t(active ? "panel.cal.table_active" : "panel.cal.table_inactive")}
+        ${t("panel.cal.current_raw", { raw: esc(rawTxt) })}</div>
       <div class="calwrap">
         <div class="calcol">
-          <div class="caltable">${rows || `<div class="empty">Keine Stützpunkte. Tabelle eintippen oder Messwert übernehmen.</div>`}</div>
-          <div class="calbtns"><button class="btn ghost small" data-addcal>+ Punkt</button>${
-            raw != null ? `<button class="btn ghost small" data-capcal>Aktuellen Messwert übernehmen (${esc(rawTxt)})</button>` : ""
+          <div class="caltable">${rows || `<div class="empty">${esc(t("panel.cal.empty"))}</div>`}</div>
+          <div class="calbtns"><button class="btn ghost small" data-addcal>${esc(t("panel.cal.add"))}</button>${
+            raw != null ? `<button class="btn ghost small" data-capcal>${esc(t("panel.cal.capture", { raw: rawTxt }))}</button>` : ""
           }</div>
         </div>
         ${this._calCurve(d)}
@@ -1402,9 +1642,9 @@ class GardenEspPanel extends HTMLElement {
       const m = Number(d.multiplier), off = Number(d.offset) || 0, max = Number(d.max_volume_l);
       if (!m || !max) return ""; // nothing meaningful to draw
       line = [[(0 - off) / m, 0], [(max - off) / m, max]].sort((a, b) => a[0] - b[0]);
-      note = "Linear-Shortcut (keine Tabelle)";
+      note = t("panel.cal.note_linear");
     } else {
-      note = `Stützpunkt-Tabelle (${pts.length} Punkte)`;
+      note = t("panel.cal.note_table", { n: fmtNum(pts.length) });
     }
     const xs = line.map((p) => p[0]).concat(raw != null ? [Number(raw)] : []);
     const ys = line.map((p) => p[1]).concat(curL != null ? [Number(curL)] : []).concat([Number(d.max_volume_l) || 0]);
@@ -1423,14 +1663,14 @@ class GardenEspPanel extends HTMLElement {
       marker = `<line x1="${rx}" y1="8" x2="${rx}" y2="${H - pad}" class="calnow"/>`
         + (curL != null ? `<circle cx="${rx}" cy="${sy(Number(curL)).toFixed(1)}" r="4" class="calnowdot"/>` : "");
     }
-    return `<div class="calcurve"><div class="calcap">Kalibrierkurve — ${esc(note)}</div>
+    return `<div class="calcurve"><div class="calcap">${esc(t("panel.cal.curve_caption", { note }))}</div>
       <svg viewBox="0 0 ${W} ${H}" class="calsvg" preserveAspectRatio="xMidYMid meet">
         <line x1="${pad}" y1="${H - pad}" x2="${W - 10}" y2="${H - pad}" class="calaxis"/>
         <line x1="${pad}" y1="8" x2="${pad}" y2="${H - pad}" class="calaxis"/>
-        <text x="4" y="14" class="callbl">${esc(Math.round(y1))} L</text>
-        <text x="4" y="${H - pad}" class="callbl">0</text>
-        <text x="${pad}" y="${H - 8}" class="callbl">${esc(r2(x0))}</text>
-        <text x="${W - 10}" y="${H - 8}" class="callbl" text-anchor="end">Rohwert ${esc(r2(x1))}</text>
+        <text x="4" y="14" class="callbl">${esc(fmtNum(Math.round(y1)))} ${esc(t("unit.liters"))}</text>
+        <text x="4" y="${H - pad}" class="callbl">${esc(fmtNum(0))}</text>
+        <text x="${pad}" y="${H - 8}" class="callbl">${esc(fmtNum(r2(x0)))}</text>
+        <text x="${W - 10}" y="${H - 8}" class="callbl" text-anchor="end">${esc(t("panel.cal.axis_raw", { v: fmtNum(r2(x1)) }))}</text>
         <polyline points="${poly}" class="calline"/>
         ${dots}${marker}
       </svg></div>`;
@@ -1455,11 +1695,11 @@ class GardenEspPanel extends HTMLElement {
     const generic = this._isGeneric(d.hw_type);
     const outs = (d.outputs || [])
       .map((o, i) => `<div class="subrow">
-        ${text(`outputs.${i}.name`, o.name, "Name", "wide")}
-        ${select(`outputs.${i}.type`, o.type, Object.entries(OUTPUT_TYPE))}
+        ${text(`outputs.${i}.name`, o.name, t("panel.field.name"), "wide")}
+        ${select(`outputs.${i}.type`, o.type, OUTPUT_TYPES.map((x) => [x, t(`panel.output_type.${x}`)]))}
         ${select(`outputs.${i}.channel`, o.channel, this._channelOptions(d, o, i))}
         ${generic ? select(`outputs.${i}.gpio`, o.gpio, this._outputGpioOptions(d, o, i)) : ""}
-        ${numInline(`outputs.${i}.emergency_shutdown_min`, o.emergency_shutdown_min, "Not-Aus min")}
+        ${numInline(`outputs.${i}.emergency_shutdown_min`, o.emergency_shutdown_min, t("panel.box.emergency_ph"))}
         ${this._connDevFields(d, o, i)}
         ${this._polaritySelect(d, o, i)}
         <button class="btn danger small" data-delout="${i}">✕</button></div>`)
@@ -1474,37 +1714,37 @@ class GardenEspPanel extends HTMLElement {
         if (inp.kind === "rain")
           // inverted=false = Öffner/NC (öffnet bei Regen, z. B. RainClik) → keine Pin-Invertierung;
           // inverted=true = Schließer/NO (schließt bei Regen) → Pin invertiert. Entity stets on=nass.
-          extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "Schließer (NO)", "Öffner (NC) · RainClik");
+          extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, t("panel.input.contact_no"), t("panel.input.contact_nc_rainclik"));
         else if (inp.kind === "soil_moisture")
-          extra = `<span class="inx">${numInline(`inputs.${i}.threshold_pct`, inp.threshold_pct, "Schwelle %")}${smooth}</span>`;
+          extra = `<span class="inx">${numInline(`inputs.${i}.threshold_pct`, inp.threshold_pct, t("panel.input.threshold_ph"))}${smooth}</span>`;
         else if (inp.kind === "button")
           // generic binary input (FR-S14): polarity only, no block semantics
-          extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, "invertiert (Ruhe = an)", "normal (Ruhe = aus)");
+          extra = boolSelect(`inputs.${i}.inverted`, inp.inverted, t("panel.input.inverted_sel"), t("panel.input.normal_sel"));
         else if (inp.kind === "pressure")
           extra = smooth;
         else
-          extra = `<select disabled title="kein Parameter"><option>—</option></select>`;
+          extra = `<select disabled title="${esc(t("panel.input.no_param"))}"><option>—</option></select>`;
         return `<div class="subrow inrow">
-        ${text(`inputs.${i}.name`, inp.name, "Name", "wide")}
-        ${select(`inputs.${i}.kind`, inp.kind, Object.entries(INPUT_KIND))}
+        ${text(`inputs.${i}.name`, inp.name, t("panel.field.name"), "wide")}
+        ${select(`inputs.${i}.kind`, inp.kind, INPUT_KINDS.map((x) => [x, t(`panel.input_kind.${x}`)]))}
         ${select(`inputs.${i}.pin`, inp.pin, this._inputPinOptions(d, inp, i))}
         ${extra}
         <button class="btn danger small" data-delin="${i}">✕</button></div>`;
       })
       .join("");
     return (
-      field("Name", text("name", d.name)) +
-      field("Plattform", select("hw_type", d.hw_type, this._platforms().map((p) => [p.id, p.name]))) +
-      field("Kürzel (z. B. A → A5)", select("label", d.label, this._boxLabelOptions(d))) +
-      field("Aktiviert (deaktiviert = außer Betrieb)", checkbox("enabled", d.enabled !== false)) +
-      `<div class="field"><label>Ausgänge (Ventile & Pumpen)</label>
-        <div class="sub">Kanal = Ausgang-ID (A5).${generic ? " GPIO = physischer ESP-Pin (frei)." : " ESP-Pin fest aus dem GardenControl-Profil."} Entity wird automatisch abgeleitet (s. Hardware-Übersicht).</div>
-        ${outs || `<div class="empty">Keine Ausgänge.</div>`}
-        <button class="btn ghost small" data-addout>+ Ausgang</button></div>` +
-      `<div class="field"><label>Eingänge (Sensoren)</label>
-        <div class="sub">Pin = ESP-Eingang${generic ? " (frei wählbar)" : ""}; Regen/Bodenfeuchte tragen ihren Sperr-Parameter. Entity wird automatisch abgeleitet (s. Hardware-Übersicht).</div>
-        ${ins || `<div class="empty">Keine Eingänge.</div>`}
-        <button class="btn ghost small" data-addin>+ Eingang</button></div>`
+      field(t("panel.field.name"), text("name", d.name)) +
+      field(t("panel.field.platform"), select("hw_type", d.hw_type, this._platforms().map((p) => [p.id, p.name]))) +
+      field(t("panel.field.label"), select("label", d.label, this._boxLabelOptions(d))) +
+      field(t("panel.field.enabled"), checkbox("enabled", d.enabled !== false)) +
+      `<div class="field"><label>${esc(t("panel.field.outputs"))}</label>
+        <div class="sub">${esc(t(generic ? "panel.field.outputs_hint_generic" : "panel.field.outputs_hint_gc"))}</div>
+        ${outs || `<div class="empty">${esc(t("panel.box.empty_outputs"))}</div>`}
+        <button class="btn ghost small" data-addout>${esc(t("panel.box.add_output"))}</button></div>` +
+      `<div class="field"><label>${esc(t("panel.field.inputs"))}</label>
+        <div class="sub">${esc(t(generic ? "panel.field.inputs_hint_generic" : "panel.field.inputs_hint_gc"))}</div>
+        ${ins || `<div class="empty">${esc(t("panel.box.empty_inputs"))}</div>`}
+        <button class="btn ghost small" data-addin>${esc(t("panel.box.add_input"))}</button></div>`
     );
   }
 
@@ -1517,7 +1757,7 @@ class GardenEspPanel extends HTMLElement {
   // ``boxId`` (optional) restricts outputs to a single box — used by the line editor
   // so the valve dropdown only offers valves of the line's selected box.
   _outputRefs(type, boxId) {
-    const match = (t) => !type || (Array.isArray(type) ? type.includes(t) : t === type);
+    const match = (x) => !type || (Array.isArray(type) ? type.includes(x) : x === type);
     const out = [];
     for (const b of Object.values(this._cfg().boxes || {})) {
       if (boxId && b.id !== boxId) continue;
@@ -1547,12 +1787,11 @@ class GardenEspPanel extends HTMLElement {
   async _syncBox(boxId) {
     try {
       const r = await this._ws({ type: "gardenesp/box/sync", box_id: boxId });
-      if (!r.total) this._toast("Keine Ein-/Ausgänge zum Abgleichen.");
-      else if (!r.resolved)
-        this._toast("Keine Entities gefunden — Steuergerät flashen und in HA als ESPHome-Gerät hinzufügen.");
-      else this._toast(`${r.resolved}/${r.total} Entities abgeglichen.`);
+      if (!r.total) this._toast(t("panel.toast.sync_none"));
+      else if (!r.resolved) this._toast(t("panel.toast.sync_not_found"));
+      else this._toast(t("panel.toast.sync_ok", { resolved: fmtNum(r.resolved), total: fmtNum(r.total) }));
     } catch (err) {
-      this._toast(`Abgleich: ${errText(err)}`);
+      this._toast(t("panel.toast.sync_failed", { msg: errText(err) }));
       return;
     }
     await this._load();
@@ -1564,7 +1803,7 @@ class GardenEspPanel extends HTMLElement {
       const res = await this._ws({ type: "gardenesp/box/yaml", box_id: boxId });
       this._yaml = { box_id: boxId, text: res.yaml, node: res.node_name };
     } catch (err) {
-      this._toast(`YAML: ${errText(err)}`);
+      this._toast(t("panel.toast.yaml_failed", { msg: errText(err) }));
       return;
     }
     this._render();
@@ -1572,12 +1811,12 @@ class GardenEspPanel extends HTMLElement {
   _yamlModal() {
     return `<div class="overlay" data-closeyaml>
       <div class="modal" data-stop-prop>
-        <div class="modalhead"><h2>ESPHome-YAML 🔒</h2>
+        <div class="modalhead"><h2>${esc(t("panel.yaml.title"))}</h2>
           <button class="btn ghost" data-closeyaml>✕</button></div>
         <pre class="yaml">${esc(this._yaml.text)}</pre>
         <div class="actions">
-          <button class="btn" data-copyyaml>Kopieren</button>
-          <button class="btn primary" data-dlyaml>Herunterladen</button></div>
+          <button class="btn" data-copyyaml>${esc(t("panel.action.copy"))}</button>
+          <button class="btn primary" data-dlyaml>${esc(t("panel.action.download"))}</button></div>
       </div></div>`;
   }
 
@@ -1587,20 +1826,29 @@ class GardenEspPanel extends HTMLElement {
       const data = await this._ws({ type: "gardenesp/wiring", box_id: boxId });
       this._wiring = { box_id: boxId, data };
     } catch (err) {
-      this._toast(`Verdrahtung: ${errText(err)}`);
+      this._toast(t("panel.toast.wiring_failed", { msg: errText(err) }));
       return;
     }
     this._render();
   }
+  // wiring.py hands out stable tokens instead of German sentences (FR-I1 §4a) —
+  // the wording lives in the catalogs under `wiring.note.<token>`.
+  _wireNote(token) {
+    return token ? t(`wiring.note.${token}`) : "";
+  }
+  // "‹Kürzel› ‹Name›" for the wiring headings (modal + print window).
+  _boxCaption(box) {
+    return `${box.label ? String(box.label).toUpperCase() + " " : ""}${box.name || ""}`.trim();
+  }
   _wiringModal() {
     const d = this._wiring.data || {};
     const box = d.box || {};
-    const title = `Verdrahtung — Steuergerät ${esc(box.label ? String(box.label).toUpperCase() + " " : "")}${esc(box.name || "")}`;
+    const title = esc(t("panel.wiring.title", { name: this._boxCaption(box) }));
     const inner = d.supported
       ? this._wireDiagram(d)
-      : `<div class="empty">${esc((d.notes && d.notes[0]) || "Kein Diagramm verfügbar.")}</div>`;
+      : `<div class="empty">${esc(this._wireNote((d.notes || [])[0]) || t("panel.wiring.none"))}</div>`;
     const notes = d.supported && d.notes
-      ? `<ul class="wirenotes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`
+      ? `<ul class="wirenotes">${d.notes.map((n) => `<li>${esc(this._wireNote(n))}</li>`).join("")}</ul>`
       : "";
     return `<div class="overlay" data-closewiring>
       <div class="modal wiremodal" data-stop-prop>
@@ -1608,16 +1856,14 @@ class GardenEspPanel extends HTMLElement {
           <button class="btn ghost" data-closewiring>✕</button></div>
         <div class="wirebody">${this._wireDisclaimer()}${inner}${notes}</div>
         <div class="actions">
-          ${d.supported ? `<button class="btn primary" data-printwiring>Drucken</button>` : ""}
-          <button class="btn" data-closewiring>Schließen</button></div>
+          ${d.supported ? `<button class="btn primary" data-printwiring>${esc(t("panel.action.print"))}</button>` : ""}
+          <button class="btn" data-closewiring>${esc(t("panel.action.close"))}</button></div>
       </div></div>`;
   }
   // Legal/safety disclaimer shown on every wiring diagram (modal + print): the
   // lens is a generated overview aid, not an execution-ready plan.
   _wireDisclaimer() {
-    return `<div class="wiredisclaimer">⚠ Automatisch generierte Übersichts-Hilfe. `
-      + `Vor der Ausführung von einer Elektrofachkraft prüfen und ggf. anpassen — `
-      + `verbindlich sind das Board-Handbuch und die Gerätedatenblätter.</div>`;
+    return `<div class="wiredisclaimer">${esc(t("panel.wiring.disclaimer"))}</div>`;
   }
   // Pick the renderer by layout: WROOM = pin-header SVG, GardenControl = screw-
   // terminal board SVG. Both print cleanly (innerHTML copied into _printWiring).
@@ -1640,8 +1886,11 @@ class GardenEspPanel extends HTMLElement {
     const topName = 128, botName = yB + 14;                         // card baselines
     const RAIL = "#6d4c41";                                         // shared return/supply rail
     const colOf = (a, c) => c.power || !a ? "" : (a.role === "sensor" ? "#1565c0" : "#2e7d32");
-    const screw = (cx, cy, col) =>
-      `<circle cx="${cx}" cy="${cy}" r="6" class="gcscrew"${col ? ` style="stroke:${col};stroke-width:2"` : ""}/>` +
+    // `fn` is a token from wiring.py — resolved here so hovering a screw explains
+    // what the terminal does in the user's language (the label stays silkscreen).
+    const screw = (cx, cy, col, fn) =>
+      `<circle cx="${cx}" cy="${cy}" r="6" class="gcscrew"${col ? ` style="stroke:${col};stroke-width:2"` : ""}>` +
+      (fn ? `<title>${esc(t(`wiring.fn.${fn}`))}</title>` : "") + `</circle>` +
       `<line x1="${cx - 3}" y1="${cy - 3}" x2="${cx + 3}" y2="${cy + 3}" class="gcslot"/>`;
     // Boxed device label (analogous to the WROOM card) drawn in a rotated frame so it
     // reads vertically off the narrow terminal column; ``px/py`` is the screw-side end.
@@ -1684,14 +1933,17 @@ class GardenEspPanel extends HTMLElement {
     const midX = W / 2, midY = bodyTop + BODYH / 2;
     // halo copy under each caption (chip-coloured outline) so a wire passing behind the
     // lettering is interrupted — works in every renderer, unlike CSS ``paint-order``.
-    const silkText = (x, y, cls, t) =>
-      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle" style="stroke:#eceff1;stroke-width:4;fill:none">${t}</text>` +
-      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle">${t}</text>`;
+    const silkText = (x, y, cls, txt) =>
+      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle" style="stroke:#eceff1;stroke-width:4;fill:none">${txt}</text>` +
+      `<text x="${x}" y="${y}" class="${cls}" text-anchor="middle">${txt}</text>`;
     let silk = silkText(midX, midY - 4, "chiplbl", "GardenControl");
     for (let n = 1; n <= 12; n++) {
       const cx = midX - 12 * 9 + (n - 0.5) * 18;
       silk += `<text x="${cx}" y="${midY + 16}" class="gclednum" text-anchor="middle">${n}</text><circle cx="${cx}" cy="${midY + 24}" r="3" class="gcled"/>`;
     }
+    // NOT translated: "GardenControl" and "Ventile" are the actual silkscreen print
+    // on the board (verified against gardencontrol/gardencontrol bild.jpeg). An
+    // English caption here would disagree with the hardware in the user's hand.
     silk += silkText(midX, midY + 40, "gccap", "Ventile");
 
     const tu = tuAll, tl = tlAll;
@@ -1705,7 +1957,7 @@ class GardenEspPanel extends HTMLElement {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment, cy = row === "U" ? yU : yL;
       const railOn = c.rail && c.active;
-      svg += screw(cx, cy, railOn ? RAIL : colOf(a, c));
+      svg += screw(cx, cy, railOn ? RAIL : colOf(a, c), c.fn);
       svg += `<text x="${cx}" y="${cy + 14}" class="gctlbl${a || railOn ? " on" : ""}"${railOn ? ` style="fill:${RAIL}"` : ""} text-anchor="middle">${esc(c.label)}</text>`;
       if (!a) return;
       const px = cx + (row === "U" ? -13 : 13);
@@ -1720,7 +1972,7 @@ class GardenEspPanel extends HTMLElement {
           // nearest column, then the pad to the right — IN1/IN2 each pair with the VCC
           // screw directly right of them, R1/R2 fall back to the COM block on their left.
           const rank = (p) => [p.row === row ? 0 : 1, Math.abs(p.idx - i), p.idx < i ? 1 : 0];
-          const t = cands.sort((p, q) => {
+          const pad = cands.sort((p, q) => {
             const A = rank(p), B = rank(q);
             return A[0] - B[0] || A[1] - B[1] || A[2] - B[2];
           })[0];
@@ -1729,10 +1981,10 @@ class GardenEspPanel extends HTMLElement {
           // is approached from the side so the drop misses the upper screw + its label.
           const by = busTop - 4 * retK++;
           let path = `M${px},${cardTopY(a) - 2} V${by} `;
-          if (t.row === "U") path += `H${t.x} V${t.y - 6}`;
+          if (pad.row === "U") path += `H${pad.x} V${pad.y - 6}`;
           else {
-            const lane = t.x + 22 <= W - MX ? t.x + 22 : t.x - 26;
-            path += `H${lane} V${t.y} H${t.x}`;
+            const lane = pad.x + 22 <= W - MX ? pad.x + 22 : pad.x - 26;
+            path += `H${lane} V${pad.y} H${pad.x}`;
           }
           svg += railPath(path, 1.6);
         }
@@ -1748,7 +2000,7 @@ class GardenEspPanel extends HTMLElement {
     boAll.forEach((c, i) => {
       if (!c || !c.label) return;
       const cx = colCX(i), a = c.assignment;
-      svg += screw(cx, yB, colOf(a, c));
+      svg += screw(cx, yB, colOf(a, c), c.fn);
       svg += `<text x="${cx}" y="${yB - 10}" class="gctlbl${a ? " on" : ""}" text-anchor="middle">${esc(c.label)}</text>`;
       if (!a) return;
       const cw = cardW(a);                              // card length (hangs down from botName)
@@ -1757,8 +2009,8 @@ class GardenEspPanel extends HTMLElement {
     });
     if (vlist.length) {
       svg += `<rect x="${block.x}" y="${block.y}" width="${block.w}" height="${block.h}" rx="6" style="fill:#efebe9;stroke:${RAIL};stroke-width:1.6"/>`;
-      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 20}" style="fill:${RAIL};font-weight:700;font-size:11px" text-anchor="middle">COM-Verteilerblock</text>`;
-      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 36}" style="fill:${RAIL};font-size:9px" text-anchor="middle">Rückleiter aller Ventile</text>`;
+      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 20}" style="fill:${RAIL};font-weight:700;font-size:11px" text-anchor="middle">${esc(t("wiring.gc.com_block"))}</text>`;
+      svg += `<text x="${block.x + block.w / 2}" y="${block.y + 36}" style="fill:${RAIL};font-size:9px" text-anchor="middle">${esc(t("wiring.gc.com_block_sub"))}</text>`;
       // Valves standing over the block drop straight onto its top edge; the rest fan in
       // from the left — each first dropping below the longest card, so no lead crosses a
       // neighbouring device box on its way.
@@ -1784,9 +2036,10 @@ class GardenEspPanel extends HTMLElement {
     svg += silk;   // board lettering on top of the COM bus crossing the body
 
     // legend
-    const gleg = [["#2e7d32", "Ausgang"], ["#1565c0", "Eingang/Sensor"], ["#37474f", "Signal"], [RAIL, "Versorgung/Rückleiter"]];
+    const gleg = [["#2e7d32", t("wiring.legend.output")], ["#1565c0", t("wiring.legend.input")],
+      ["#37474f", t("wiring.legend.signal")], [RAIL, t("wiring.legend.supply")]];
     let gx = MX; const gy = H - 12;
-    const glegend = gleg.map(([c, t]) => { const s = `<rect x="${gx}" y="${gy - 9}" width="11" height="11" fill="${c}"/><text x="${gx + 16}" y="${gy}" class="legtxt">${esc(t)}</text>`; gx += 30 + t.length * 6.4; return s; }).join("");
+    const glegend = gleg.map(([c, lbl]) => { const s = `<rect x="${gx}" y="${gy - 9}" width="11" height="11" fill="${c}"/><text x="${gx + 16}" y="${gy}" class="legtxt">${esc(lbl)}</text>`; gx += 30 + lbl.length * 6.4; return s; }).join("");
     return `<svg viewBox="0 0 ${W} ${H}" class="wiresvg" xmlns="http://www.w3.org/2000/svg"><g transform="translate(0,${TOP})">${svg}</g>${glegend}</svg>`;
   }
   // Build the board schematic: faithful 38-pin chip (USB down, pins 1↓→19↑ per
@@ -1843,16 +2096,16 @@ class GardenEspPanel extends HTMLElement {
       const gnd = (onRight ? gndR : gndL).sort((a, b) => Math.abs(a - pad.pin) - Math.abs(b - pad.pin))[0];
       if (gnd != null) svg += `<line x1="${cardEdge}" y1="${y + 6}" x2="${onRight ? CHIPR : CHIPX}" y2="${pinY(gnd)}" class="gndwire"/>`;
       // card
-      const role = { valve: "Ventil", pump: "Pumpe", other: "Ausgang", sensor: "Sensor" }[dev.role] || dev.role;
+      const role = WIRE_ROLES.includes(dev.role) ? t(`wiring.role.${dev.role}`) : dev.role;
       const idTag = dev.short_id ? `<tspan class="cardid">${esc(dev.short_id)}</tspan> ` : "";
       svg += `<g class="card"><rect x="${cx}" y="${y - 11}" width="${CARDW}" height="22" rx="4"/>` +
         `<text x="${cx + 8}" y="${y + 4}" class="cardlbl">${idTag}${esc(trunc(dev.name, 22))} <tspan class="cardrole">(${esc(role)})</tspan></text></g>`;
     });
 
     // legend
-    const leg = [["io", "frei nutzbar"], ["input_only", "nur Eingang (34–39)"], ["strapping", "Strapping (Vorsicht)"], ["uart", "UART/Konsole (1·3)"], ["forbidden", "belegt/Flash (6–11)"], ["power", "Power/GND"]];
+    const leg = WIRE_CAPS.map((c) => [c, t(`wiring.cap.${c}`)]);
     let lx = 8; const ly = H + 44;
-    let legend = leg.map(([c, t]) => { const s = `<rect x="${lx}" y="${ly - 9}" width="11" height="11" fill="${COL[c]}"/><text x="${lx + 16}" y="${ly}" class="legtxt">${t}</text>`; lx += 30 + t.length * 6.4; return s; }).join("");
+    let legend = leg.map(([c, lbl]) => { const s = `<rect x="${lx}" y="${ly - 9}" width="11" height="11" fill="${COL[c]}"/><text x="${lx + 16}" y="${ly}" class="legtxt">${esc(lbl)}</text>`; lx += 30 + lbl.length * 6.4; return s; }).join("");
 
     return `<svg viewBox="0 0 ${W} ${ly + 10}" class="wiresvg" xmlns="http://www.w3.org/2000/svg">${svg}${legend}</svg>`;
   }
@@ -1860,16 +2113,16 @@ class GardenEspPanel extends HTMLElement {
     if (!this._wiring || !this._wiring.data || !this._wiring.data.supported) return;
     const d = this._wiring.data, box = d.box || {};
     const win = window.open("", "_blank");
-    if (!win) { this._toast("Pop-up blockiert — Druck nicht möglich."); return; }
-    win.document.write(`<!doctype html><html><head><title>Verdrahtung ${esc(box.name || "")}</title>
+    if (!win) { this._toast(t("panel.toast.popup_blocked")); return; }
+    win.document.write(`<!doctype html><html><head><title>${esc(t("panel.wiring.title", { name: box.name || "" }))}</title>
       <style>${this._wireStyle()} body{margin:16px;font-family:sans-serif}h1{font-size:16px}
       ul{font-size:12px;color:#444}
       .wiredisclaimer{margin:0 0 12px;padding:8px 10px;border:1px solid #e0a800;
         background:#fff8e1;color:#7a5c00;font-size:12px;border-radius:4px}</style></head><body>
-      <h1>🔌 Verdrahtung — Steuergerät ${esc(box.label ? String(box.label).toUpperCase() + " " : "")}${esc(box.name || "")}</h1>
+      <h1>🔌 ${esc(t("panel.wiring.title", { name: this._boxCaption(box) }))}</h1>
       ${this._wireDisclaimer()}
       ${this._wireDiagram(d)}
-      <ul>${(d.notes || []).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      <ul>${(d.notes || []).map((n) => `<li>${esc(this._wireNote(n))}</li>`).join("")}</ul>
       <script>window.onload=function(){window.print();}<\/script></body></html>`);
     win.document.close();
   }
@@ -1954,12 +2207,12 @@ class GardenEspPanel extends HTMLElement {
     on("[data-capcal]", "onclick", () => this._captureCal());
 
     // Allgemein tab (global settings + custom platforms)
-    on("[data-setting]", "oninput", (e) => { this._settingsDraft[e.currentTarget.dataset.setting] = e.currentTarget.value === "" ? "" : parseInt(e.currentTarget.value, 10) || 0; });
+    on("[data-setting]", "oninput", (e) => { this._settingsDraft[e.currentTarget.dataset.setting] = e.currentTarget.value === "" ? "" : Math.round(parseNum(e.currentTarget.value)) || 0; });
     on("[data-setting-bool]", "onchange", (e) => { this._settingsDraft[e.currentTarget.dataset.settingBool] = e.currentTarget.checked; });
     on("[data-setting-select]", "onchange", (e) => { this._settingsDraft[e.currentTarget.dataset.settingSelect] = e.currentTarget.value; });
     on("[data-platname]", "oninput", (e) => { this._settingsDraft.platforms[+e.currentTarget.dataset.platname].name = e.currentTarget.value; });
     on("[data-addplat]", "onclick", () => {
-      (this._settingsDraft.platforms = this._settingsDraft.platforms || []).push({ id: "plat_" + Math.random().toString(36).slice(2, 8), name: "Neue Plattform" });
+      (this._settingsDraft.platforms = this._settingsDraft.platforms || []).push({ id: "plat_" + Math.random().toString(36).slice(2, 8), name: t("panel.general.new_platform") });
       this._render();
     });
     on("[data-delplat]", "onclick", (e) => { this._settingsDraft.platforms.splice(+e.currentTarget.dataset.delplat, 1); this._render(); });
@@ -1980,12 +2233,15 @@ class GardenEspPanel extends HTMLElement {
     const path = el.dataset.path;
     const type = el.dataset.type || "str";
     let v;
+    // Numbers are read with parseNum, not parseFloat/parseInt: `<input type=number>`
+    // normalises to a dot, but a plain text field (dur) or a browser that hands the
+    // localised string through would otherwise turn "1,5" into 1 (i18n-concept §7).
     if (type === "bool") v = el.type === "checkbox" ? el.checked : el.value === "true";
-    else if (type === "num") v = el.value === "" ? 0 : parseInt(el.value, 10) || 0;
-    else if (type === "float") v = el.value === "" ? 0 : parseFloat(el.value) || 0;
+    else if (type === "num") v = el.value === "" ? 0 : Math.round(parseNum(el.value)) || 0;
+    else if (type === "float") v = el.value === "" ? 0 : parseNum(el.value) || 0;
     else if (type === "dur") v = parseDur(el.value);
-    else if (type === "strlist") v = el.value.split(",").map((s) => s.trim()).filter(Boolean);
-    else if (type === "intlist") v = el.value.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+    else if (type === "strlist") v = el.value.split(",").map((x) => x.trim()).filter(Boolean);
+    else if (type === "intlist") v = el.value.split(",").map((x) => Math.round(parseNum(x))).filter((n) => !isNaN(n));
     else v = el.value;
     setPath(this._draft, path, v);
     // Live-update the runtime warning in place (no full re-render — that would
@@ -2037,9 +2293,9 @@ class GardenEspPanel extends HTMLElement {
     try {
       await this._ws({ type: "gardenesp/settings/set", data: this._settingsDraft });
       await this._load();
-      this._toast("Einstellungen gespeichert");
+      this._toast(t("panel.toast.settings_saved"));
     } catch (err) {
-      this._toast(`Speichern fehlgeschlagen: ${errText(err)}`);
+      this._toast(t("panel.toast.save_failed", { msg: errText(err) }));
     }
   }
   _onWeekday(e) {
@@ -2076,20 +2332,20 @@ class GardenEspPanel extends HTMLElement {
   }
   _copyYaml() {
     this._markExported();
-    const t = this._yaml.text;
+    const yaml = this._yaml.text;
     // navigator.clipboard needs a secure context (https/localhost) — HA over http
     // on the LAN often has it undefined, so fall back to a hidden textarea + execCommand.
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(t)
-        .then(() => this._toast("YAML kopiert"))
-        .catch(() => this._fallbackCopy(t));
+      navigator.clipboard.writeText(yaml)
+        .then(() => this._toast(t("panel.toast.yaml_copied")))
+        .catch(() => this._fallbackCopy(yaml));
     } else {
-      this._fallbackCopy(t);
+      this._fallbackCopy(yaml);
     }
   }
-  _fallbackCopy(t) {
+  _fallbackCopy(yaml) {
     const ta = document.createElement("textarea");
-    ta.value = t;
+    ta.value = yaml;
     ta.style.position = "fixed";
     ta.style.opacity = "0";
     (this.shadowRoot || document.body).appendChild(ta);
@@ -2098,7 +2354,7 @@ class GardenEspPanel extends HTMLElement {
     let ok = false;
     try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
     ta.remove();
-    this._toast(ok ? "YAML kopiert" : "Kopieren nicht möglich — bitte manuell markieren");
+    this._toast(t(ok ? "panel.toast.yaml_copied" : "panel.toast.copy_failed"));
   }
   _downloadYaml() {
     this._markExported();
@@ -2129,17 +2385,19 @@ function num(path, val, float) {
 // Duration in (fractional) minutes, entered as plain minutes (Standardfall) or as
 // ``m:ss`` for sub-minute runs (e.g. 0:18 = 18 s, Gießkanne füllen). Stored as float.
 function dur(path, val) {
-  return `<input data-path="${path}" data-type="dur" value="${esc(fmtDur(val))}" placeholder="z. B. 5 oder 0:18">`;
+  return `<input data-path="${path}" data-type="dur" value="${esc(fmtDur(val))}" placeholder="${esc(t("panel.field.duration_ph"))}">`;
 }
 // "0:18" / "1:30" → fractional minutes; a plain number is taken as minutes.
 function parseDur(str) {
-  const t = String(str == null ? "" : str).trim();
-  if (t === "") return 0;
-  if (t.includes(":")) {
-    const [mm, ss] = t.split(":");
+  const raw = String(str == null ? "" : str).trim();
+  if (raw === "") return 0;
+  if (raw.includes(":")) {
+    const [mm, ss] = raw.split(":");
     return (parseInt(mm, 10) || 0) + (parseInt(ss, 10) || 0) / 60;
   }
-  return parseFloat(t) || 0;
+  // Locale-aware: a de user types "1,5" for 1½ minutes — parseFloat would read 1
+  // and silently shorten every run (i18n-concept §7, the one real data risk).
+  return parseNum(raw) || 0;
 }
 // Fractional minutes → editable text: whole minutes as a plain number, otherwise m:ss.
 function fmtDur(min) {
@@ -2171,9 +2429,10 @@ function boolSelect(path, val, trueLabel, falseLabel) {
 // portable unit. Changing it re-flashes the box (config-hash changes).
 function smoothingSelect(path, val) {
   const cur = Number(val) || 0;
-  const opts = [[0, "keine Glättung"], [30, "Glättung 30 s"], [60, "Glättung 60 s"], [90, "Glättung 90 s"]];
+  const opts = [0, 30, 60, 90].map((v) =>
+    [v, v === 0 ? t("panel.smoothing.none") : t("panel.smoothing.s", { s: fmtNum(v) })]);
   const o = opts.map(([v, l]) => `<option value="${v}" ${cur === v ? "selected" : ""}>${esc(l)}</option>`).join("");
-  return `<select data-path="${path}" data-type="num" title="Messwert-Glättung am Gerät (gleitender Mittelwert); Änderung erfordert Reflash">${o}</select>`;
+  return `<select data-path="${path}" data-type="num" title="${esc(t("panel.smoothing.title"))}">${o}</select>`;
 }
 
 // --- generic helpers ---------------------------------------------------------
@@ -2182,30 +2441,51 @@ function smoothingSelect(path, val) {
 // and therefore truncated names while the frame still had room. The +6% margin covers
 // renderers that fall back to a wider sans-serif (print window, headless rsvg).
 const GC_DEV_FONT = '600 11px Roboto, "Helvetica Neue", Arial, sans-serif';
+// Topology node fonts — must match the .tn-* rules in BOTH CSS copies (shadow DOM
+// + print window), otherwise the measurement and the rendering disagree.
+const TN_STACK = 'Roboto, "Helvetica Neue", Arial, sans-serif';
+const TN_FONT = {
+  title: `600 13px ${TN_STACK}`,
+  meta: `11px ${TN_STACK}`,
+  id: `700 10.5px ${TN_STACK}`,
+  tag: `10px ${TN_STACK}`,
+  head: `700 10px ${TN_STACK}`,   // .tn-h — rendered uppercase, see TN_HEAD_TRACKING
+};
+// .tn-h carries `letter-spacing: .5px`, which canvas measureText does not know
+// about — add it per character or the heading measures narrower than it renders.
+const TN_HEAD_TRACKING = 0.5;
 let _measureCtx = null;
 function textWidth(s, font) {
-  const t = String(s == null ? "" : s);
+  const str = String(s == null ? "" : s);
   if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d");
-  if (!_measureCtx) return t.length * 6.6;   // no 2d context → conservative estimate
+  // No 2D context (headless test runner, exotic browser): estimate from the font
+  // *size and weight* rather than a flat 6.6 px/char, which happened to be right
+  // for 11px semibold and wrong for everything else — it under-sized the 13px
+  // topology titles (text ran out of its box) and over-sized the 10px tags.
+  if (!_measureCtx) {
+    const px = parseFloat((String(font).match(/([\d.]+)px/) || [0, 12])[1]);
+    const bold = /(^|\s)(600|700|800|900|bold)(\s|$)/.test(String(font));
+    return str.length * px * (bold ? 0.6 : 0.55);
+  }
   _measureCtx.font = font;
-  return _measureCtx.measureText(t).width;
+  return _measureCtx.measureText(str).width;
 }
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-// Turn any thrown/rejected value into a readable German message — never "[object
-// Object]". HA rejects WS calls with {code,message}, or a bare numeric code when
-// the connection drops (routine when the iOS app is backgrounded). Mirrors the Card.
+// Turn any thrown/rejected value into a readable message — never "[object Object]".
+// HA rejects WS calls with {code,message}, or a bare numeric code when the connection
+// drops (routine when the iOS app is backgrounded). Mirrors the Card.
+const WS_ERROR_KEY = { 1: "error.ws_connect", 2: "error.ws_auth", 3: "error.ws_disconnected" };
 function errText(err) {
-  if (err == null) return "Unbekannter Fehler";
+  if (err == null) return t("error.unknown");
   if (typeof err === "string") return err;
   if (typeof err === "number")
-    return { 1: "Verbindung zu Home Assistant nicht möglich", 2: "Anmeldung ungültig",
-      3: "Verbindung zu Home Assistant unterbrochen" }[err] || `Fehler ${err}`;
+    return WS_ERROR_KEY[err] ? t(WS_ERROR_KEY[err]) : t("error.code", { code: err });
   if (typeof err === "object") {
     if (err.message) return String(err.message);
     if (err.error && err.error.message) return String(err.error.message);
-    if (err.code != null) return `Fehler ${err.code}`;
+    if (err.code != null) return t("error.code", { code: err.code });
     try { return JSON.stringify(err); } catch (e) { /* circular */ }
   }
   return String(err);
@@ -2476,7 +2756,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 4
 .topo-intro { margin: 0 0 12px; }
 .topo-group { border: 1px solid var(--divider-color, #e0e0e0); border-radius: 10px;
   padding: 8px; margin-bottom: 12px; overflow-x: auto; }
-.toposvg { display: block; width: 100%; height: auto; min-width: 520px; font-family: inherit; }
+.toposvg { display: block; width: 100%; height: auto; min-width: 520px;
+  font-family: Roboto, "Helvetica Neue", Arial, sans-serif; }
 .toposvg .tn-h { font-size: 10px; font-weight: 700; letter-spacing: .5px;
   fill: var(--secondary-text-color, #888); text-transform: uppercase; }
 .toposvg .tn-id { font-size: 10.5px; font-weight: 700; fill: #fff; }

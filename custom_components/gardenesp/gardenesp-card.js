@@ -43,7 +43,7 @@ const FW_ATTENTION = ["drift", "drift_offline", "drift_export"];
 // (power-on, restart button, OTA) stay hidden. The substring match covers ESPHome's
 // variants (Task/Interrupt/RTC Watchdog, Software Panic).
 const PROBLEM_RESET_RE = /brownout|watchdog|panic/i;
-// Wording for these lives in the language catalogs (card.source_type.* /
+// Wording for these lives in the language catalogs (enum.source_type.* /
 // card.sensor_kind.* / card.result.* / card.trigger.*); the code only keeps the keys.
 const SOURCE_TYPES = ["cistern", "mains"];
 const SENSOR_KINDS = ["rain", "soil_moisture"];
@@ -123,15 +123,15 @@ const I18N_EMERGENCY = {
   "unit.seconds": "s",
   "card.label.last": "Last",
   "card.label.next": "Next",
-  "card.tag.auto_off": "Auto off",
+  "common.tag.auto_off": "Auto off",
   "card.row.box_out_of_service": "Controller out of service",
   "card.row.box_disabled": "Controller disabled",
   "card.action.start": "Start",
   "card.action.start_anyway": "Start anyway (sensor blocks)",
   "card.action.stop": "Stop",
-  "card.sensor.dry": "dry",
-  "card.sensor.wet": "wet",
-  "card.sensor.moist": "moist",
+  "enum.sensor.dry": "dry",
+  "enum.sensor.wet": "wet",
+  "enum.sensor.moist": "moist",
 };
 const _i18nFetches = new Map(); // lang -> Promise<catalog|null>
 let _i18n = { lang: null, cat: {}, base: {}, degraded: false };
@@ -418,9 +418,9 @@ class GardenEspCard extends HTMLElement {
   _fwBanner(cfg) {
     const names = Object.values(cfg.boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
-      .map((b) => (b.label ? t("card.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id));
+      .map((b) => (b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id));
     if (!names.length) return "";
-    return `<a class="fwbanner" href="/gardenesp" title="${esc(t("card.banner.flash_title"))}">${esc(t("card.banner.flash_pending", { names: names.join(" · ") }))}</a>`;
+    return `<a class="fwbanner" href="/gardenesp" title="${esc(t("card.banner.flash_title"))}">${esc(t("common.banner.flash_pending", { names: names.join(" · ") }))}</a>`;
   }
 
   // Banner shown when a box's last reboot had a fault cause (roadmap #20): a
@@ -431,7 +431,7 @@ class GardenEspCard extends HTMLElement {
       .filter((b) => b.enabled !== false)
       .map((b) => ({ b, r: this._val(b.id, "reset_reason") }))
       .filter(({ r }) => r && PROBLEM_RESET_RE.test(r))
-      .map(({ b, r }) => `${b.label ? t("card.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id} — ${r}`);
+      .map(({ b, r }) => `${b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id} — ${r}`);
     if (!names.length) return "";
     return `<div class="fwbanner" title="${esc(t("card.banner.reboot_title"))}">${esc(t("card.banner.reboot", { names: names.join(" · ") }))}</div>`;
   }
@@ -552,7 +552,7 @@ class GardenEspCard extends HTMLElement {
     if (status === "blocked_level") status = ln.automatic ? "idle" : "automatic_off";
     const st = STATUS[status] || STATUS.idle;
     const label = esc(`${this._lineId(cfg, ln)} · ${ln.name || id}`);
-    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("card.tag.auto_off"))}</span>`;
+    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("common.tag.auto_off"))}</span>`;
     const last = this._lastFor(id);
     const lastIsFault = last && last === this._faultFor(id);
     const lastTxt = `${t("card.label.last")}: ${last ? fmtLast(last, lastIsFault) : "—"}`;
@@ -601,7 +601,7 @@ class GardenEspCard extends HTMLElement {
     const boxOff = this._lineOutOfService(cfg, ln);
     const status = boxOff ? "box_disabled" : this._val(id, "status", ln.automatic ? "idle" : "automatic_off");
     const st = STATUS[status] || STATUS.idle;
-    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("card.tag.auto_off"))}</span>`;
+    const auto = ln.automatic ? "" : ` <span class="tag">${esc(t("common.tag.auto_off"))}</span>`;
     const last = this._lastFor(id);
     const lastIsFault = last && last === this._faultFor(id);
     const sub = `${t("card.label.last")}: ${last ? fmtLast(last, lastIsFault) : "—"}${this._faultLine(id, status)} · ${t("card.label.next")}: ${fmtNext(this._val(id, "next_run"))}`;
@@ -674,14 +674,14 @@ class GardenEspCard extends HTMLElement {
     if (inp.kind === "rain") {
       const b = this._val(ref, "state");
       if (b != null) {
-        state = t(b ? "card.sensor.wet" : "card.sensor.dry");
+        state = t(b ? "enum.sensor.wet" : "enum.sensor.dry");
         cls = b ? "info" : "muted";
       }
     } else {
       const m = this._val(ref, "moisture");
       if (m != null) {
         const blocked = inp.threshold_pct && m >= inp.threshold_pct;
-        state = `${fmtNum(Math.round(m))} % · ${t(blocked ? "card.sensor.moist" : "card.sensor.dry")}`;
+        state = `${fmtNum(Math.round(m))} % · ${t(blocked ? "enum.sensor.moist" : "enum.sensor.dry")}`;
         cls = blocked ? "info" : "muted";
       }
     }
@@ -750,13 +750,13 @@ class GardenEspCard extends HTMLElement {
     const src = (cfg.sources || {})[ln.source_id];
     const sensor = this._inputOf(cfg, ln.sensor_input);
     const es = out && out.emergency_shutdown_min
-      ? fmtMinutes(out.emergency_shutdown_min) : t("card.detail.off");
+      ? fmtMinutes(out.emergency_shutdown_min) : t("common.off");
     return this._kv([
       [t("card.detail.controller_valve"), esc(this._valveLabel(cfg, ln))],
       [t("card.detail.switch_entity"), esc(out && out.entity ? out.entity : "—")],
       [t("card.detail.source"), src ? esc(src.name) : t("card.detail.no_source")],
       [t("card.detail.emergency_stop"), esc(es)],
-      [t("card.detail.automatic"), t(ln.automatic ? "card.detail.on" : "card.detail.off")],
+      [t("card.detail.automatic"), t(ln.automatic ? "common.on" : "common.off")],
       [t("card.detail.sensor"), sensor
         ? `${esc(sensor.name)}${ln.sensor_override ? ` · ${esc(t("card.detail.override"))}` : ""}`
         : t("card.detail.none")],
@@ -773,7 +773,7 @@ class GardenEspCard extends HTMLElement {
     const below = side === "below";
     return {
       side,
-      chip: t(below ? "card.calib.chip_below" : "card.calib.chip_above"),
+      chip: t(below ? "common.calib.chip_below" : "common.calib.chip_above"),
       text: t(below ? "card.calib.text_below" : "card.calib.text_above"),
     };
   }
@@ -792,7 +792,7 @@ class GardenEspCard extends HTMLElement {
         : "";
       return (rw ? `<div class="faultbox">${esc(rw.chip)} — ${esc(rw.text)}</div>` : "")
         + this._kv([
-          [t("card.detail.type"), t(`card.source_type.${s.type}`)],
+          [t("card.detail.type"), t(`enum.source_type.${s.type}`)],
           [t("card.detail.level"), `${level != null ? vol(level) : "—"}${pct != null ? ` (${fmtNum(pct)} %)` : ""}`],
           [t("card.detail.max_volume"), s.max_volume_l ? vol(s.max_volume_l) : "—"],
           [t("card.detail.min_fill"), `${fmtNum(s.min_fill_pct || 0)} %`],
@@ -801,7 +801,7 @@ class GardenEspCard extends HTMLElement {
         ]) + histBtn;
     }
     return this._kv([
-      [t("card.detail.type"), t(`card.source_type.${s.type}`)],
+      [t("card.detail.type"), t(`enum.source_type.${s.type}`)],
       [t("card.detail.factor"), t("card.detail.factor_value", { v: fmtNum(s.pulse_factor) })],
     ]);
   }
