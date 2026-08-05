@@ -32,7 +32,9 @@ HW_ESP32_WROOM = "esp32_wroom"
 # ESPHome ``project: name`` — the flashed device reports ``project.version`` back
 # to HA as its device ``sw_version`` (firmware-drift detection, roadmap #9). HA's
 # ESPHome integration also derives the device model from the part after the dot.
-PROJECT_NAME = "gardenesp.steuergeraet"
+# English since P6 (FR-I1 §14-A); nothing *matches* on it — only ``project.version``
+# (the config hash) drives drift detection, so the rename is display-only.
+PROJECT_NAME = "gardenesp.controller"
 _FRIENDLY_MARKER = "  friendly_name: ${friendly_name}"
 
 OUTPUT_VALVE = "valve"
@@ -164,41 +166,94 @@ def sanitize(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", ascii_fold(name)).strip("_").lower()
 
 
-def _device_name(box: dict[str, Any]) -> str:
-    """ESPHome ``name:`` — lowercase, hyphens only (no underscores allowed).
+# Node-name prefixes. ``NODE_PREFIX`` applies to boxes created from P6 on;
+# ``NODE_PREFIX_LEGACY`` is what every box created before it carries and keeps
+# forever — renaming a flashed device changes its mDNS hostname *and* the ESPHome
+# unique_ids, orphaning the user's entities (roadmap #21).
+NODE_PREFIX = "gardenesp-controller"
+NODE_PREFIX_LEGACY = "gardenesp-steuergeraet"
 
-    Derived from the box **label** (``gardenesp-steuergeraet-<label>``) so the
-    resulting HA entity_ids are stable and branded
-    (``switch.gardenesp_steuergeraet_c_<output>``) and do **not** change when the
-    free-text box name is edited. Falls back to the box name/id only when no label
-    is set (legacy boxes)."""
+
+def _node_from_label(box: dict[str, Any], prefix: str) -> str:
+    """``<prefix>-<label>`` — lowercase, hyphens only (no underscores allowed).
+
+    Built from the box **label** rather than its free-text name, so the resulting
+    node name is short and predictable. Falls back to the box name/id when no
+    label is set (legacy boxes)."""
     label = sanitize(box.get("label") or "")
     if label:
-        return f"gardenesp-steuergeraet-{label}".replace("_", "-")
+        return f"{prefix}-{label}".replace("_", "-")
     base = sanitize(box.get("name") or box.get("id") or "garden-box")
     return base.replace("_", "-") or "garden-box"
 
 
+def legacy_device_name(box: dict[str, Any]) -> str:
+    """The pre-P6 node name (``gardenesp-steuergeraet-<label>``).
+
+    Only for **back-filling** ``box.node_name`` on boxes that predate P6 — it must
+    reproduce the old derivation byte-for-byte, or the back-fill would rename a
+    flashed device and orphan its entities."""
+    return _node_from_label(box, NODE_PREFIX_LEGACY)
+
+
+def new_device_name(box: dict[str, Any]) -> str:
+    """The node name for a **newly created** box (``gardenesp-controller-<label>``).
+    Called once at creation; the result is persisted (see :func:`device_name`)."""
+    return _node_from_label(box, NODE_PREFIX)
+
+
 def device_name(box: dict[str, Any]) -> str:
-    """Public alias — the ESPHome node ``name:`` for a box (``gardenesp-steuergeraet-<label>``).
+    """The ESPHome node ``name:`` of a box — **read from the stored value** (P6).
+
+    The node name is the device's identity: it is the mDNS hostname and the base
+    ESPHome builds its ``unique_id``s from. It is therefore **persisted** at
+    creation and never recomputed — otherwise editing the box label would rename
+    the flashed device behind the user's back (roadmap #21). Deriving is only a
+    fallback for box dicts that predate the back-fill, and it deliberately yields
+    the *legacy* name so such a box keeps resolving exactly as before.
+
     Used by the coordinator to match a box to its ESPHome HA config entry (whose
     ``data["device_name"]`` equals exactly this)."""
-    return _device_name(box)
+    return str(box.get("node_name") or "").strip() or legacy_device_name(box)
+
+
+def node_name_for_upsert(
+    box: dict[str, Any], stored: str | None, is_new: bool
+) -> str:
+    """The node name to store for a box on upsert — **write-once** (roadmap #21).
+
+    A box that already owns a name keeps it, whatever its label now says: renaming
+    a flashed device changes its mDNS hostname *and* the ESPHome ``unique_id``s,
+    orphaning every entity the user's automations reference. Only a genuinely new
+    box gets the English name — nothing exists yet that could break. An existing
+    box without a stored name predates P6 and is back-filled with its legacy name,
+    which is exactly what it has been flashed with."""
+    if s := str(stored or "").strip():
+        return s
+    return new_device_name(box) if is_new else legacy_device_name(box)
+
+
+def _device_name(box: dict[str, Any]) -> str:
+    return device_name(box)
 
 
 def _friendly_name(box: dict[str, Any]) -> str:
     """ESPHome ``friendly_name`` — the human device name shown in HA, and the base
-    HA derives the box entity_ids from. Prefixed with ``GardenESP Steuergerät <Kürzel>``
-    so all box outputs/inputs share the ``gardenesp_steuergeraet_<x>_*`` entity_id
-    prefix (consistent with the "Steuergerät" UI term) and multiple boxes stay
-    distinguishable. The descriptive name is intentionally **not** part of it, to
-    keep the entity_id prefix bounded. Falls back to ``GardenESP <name>`` when no
-    label is set. NB: HA freezes an entity_id at first creation — existing boxes
-    keep their old ``gardenesp_box_*`` ids until removed + re-added (resolver matches
-    by entity name, so display is unaffected)."""
+    HA derives the box entity_ids from. Prefixed with ``GardenESP Controller <Kürzel>``
+    so all box outputs/inputs share the ``gardenesp_controller_<x>_*`` entity_id
+    prefix and multiple boxes stay distinguishable. The descriptive name is
+    intentionally **not** part of it, to keep the entity_id prefix bounded. Falls
+    back to ``GardenESP <name>`` when no label is set.
+
+    English for **every** box since P6 (FR-I1 §14-A) — unlike the node name this is
+    safe to change: HA freezes an entity_id at first creation and restores it from
+    the ``unique_id``, so existing boxes keep their ``gardenesp_box_*`` /
+    ``gardenesp_steuergerat_*`` ids (verified by the 0.13.52 rename); only entities
+    created from now on pick up the new prefix. The resolver matches by entity
+    name, so resolution is unaffected either way."""
     name = box.get("name") or box.get("id") or "Box"
     label = str(box.get("label") or "").strip().upper()
-    return f"GardenESP Steuergerät {label}" if label else f"GardenESP {name}"
+    return f"GardenESP Controller {label}" if label else f"GardenESP {name}"
 
 
 def _is_inverted(output: dict[str, Any]) -> bool:
@@ -220,7 +275,7 @@ def _header(box: dict[str, Any]) -> list[str]:
     friendly = _friendly_name(box)
     return [
         "# Generated by gardenesp — DO NOT EDIT.",
-        "# Source: Steuergerät device definition (outputs/inputs) + hw_type template (FDS §5.4).",
+        "# Source: controller device definition (outputs/inputs) + hw_type template (FDS §5.4).",
         "# Hardware devices only — no assignments (those live in HA Storage, FR-S9).",
         "",
         "substitutions:",
@@ -447,34 +502,84 @@ def _resolve_pin(
 # --- board diagnostics (FR-S13): WLAN signal + restart counter -----------------
 # Entity names emitted into the YAML; the coordinator matches them (folded) in the
 # registry to read the live values back (single source of truth for both sides).
-DIAG_WIFI_NAME = "WLAN-Signal"
-DIAG_BOOT_NAME = "Neustarts gesamt"
-DIAG_RESTART_NAME = "Neustart"
-DIAG_EMERGENCY_NAME = "Notabschaltungen gesamt"
+# English since P6 (FR-I1 §14-A) — the device speaks English regardless of the UI
+# language. A box still running pre-P6 firmware reports the old German names, so
+# the resolver accepts both until it is re-flashed: see DIAG_LEGACY_NAMES.
+DIAG_WIFI_NAME = "WiFi signal"
+DIAG_BOOT_NAME = "Restarts total"
+DIAG_RESTART_NAME = "Restart"
+DIAG_EMERGENCY_NAME = "Emergency shutdowns total"
 # Reboot-cause + resource diagnostics via the ESPHome `debug` component (roadmap #20):
 # the reset reason (Brownout / watchdog / software panic / power-on) distinguishes a
 # supply/power reboot from a firmware crash or memory exhaustion — invisible from
 # outside (a gap + boot-counter +1 look identical). Free heap + largest free block
 # reveal a memory leak (slow decline before a crash); loop time flags a hang.
-DIAG_RESET_REASON_NAME = "Reset-Grund"
-DIAG_HEAP_FREE_NAME = "Freier Heap"
-DIAG_HEAP_BLOCK_NAME = "Groesster freier Heap-Block"
-DIAG_LOOP_TIME_NAME = "Loop-Zeit"
+DIAG_RESET_REASON_NAME = "Reset reason"
+DIAG_HEAP_FREE_NAME = "Free heap"
+DIAG_HEAP_BLOCK_NAME = "Largest free heap block"
+DIAG_LOOP_TIME_NAME = "Loop time"
 # GardenControl-only board self-diagnostics (roadmap #1): supply-voltage error inputs
 # and 4-20 mA loop-error detection, both driving the on-board Error-LED (GPIO2).
-DIAG_ERR_5V_NAME = "Versorgungsfehler 5V"
-DIAG_ERR_12V_NAME = "Versorgungsfehler 12V"
-DIAG_ERR_24V_NAME = "Versorgungsfehler 24V"
-DIAG_ERR_LOOP1_NAME = "4-20mA CH1 Loop-Fehler"
-DIAG_ERR_LOOP2_NAME = "4-20mA CH2 Loop-Fehler"
+DIAG_ERR_5V_NAME = "Supply fault 5V"
+DIAG_ERR_12V_NAME = "Supply fault 12V"
+DIAG_ERR_24V_NAME = "Supply fault 24V"
+DIAG_ERR_LOOP1_NAME = "4-20mA CH1 loop fault"
+DIAG_ERR_LOOP2_NAME = "4-20mA CH2 loop fault"
 # Under-range detection on the *signal* channels. The board's own error inputs
 # (ADS A2/A3, > 2 V) only see an open/shorted loop on the supply side — they stay
 # `off` while a mis-wired, unpowered or dead transmitter leaves the signal channel
 # at ~0 mA instead of the 4 mA live-zero. Only emitted for configured terminals,
 # otherwise an empty input would report a permanent fault.
-DIAG_ERR_LOOP1_LOW_NAME = "4-20mA CH1 Unterbereich"
-DIAG_ERR_LOOP2_LOW_NAME = "4-20mA CH2 Unterbereich"
+DIAG_ERR_LOOP1_LOW_NAME = "4-20mA CH1 under-range"
+DIAG_ERR_LOOP2_LOW_NAME = "4-20mA CH2 under-range"
 _GC_LOOP_MIN_MA = 3.5  # below the 4 mA live-zero (with margin) = no valid loop
+
+# Transitional aliases (P6, FR-I1 §14-A). Between the integration update and the
+# re-flash, **old German firmware runs under the new integration** — at prod boxes
+# realistically for weeks. The coordinator resolves these diagnostics by name, so
+# without the alias `wifi_signal`, the boot/emergency counters, `reset_reason` and
+# `board_faults` would all read as unresolved until someone re-flashes. Every entry
+# maps the current (English) name to the pre-P6 German one; removable once no field
+# device runs pre-P6 firmware. The firmware-drift banner makes the need visible.
+DIAG_LEGACY_NAMES: dict[str, str] = {
+    DIAG_WIFI_NAME: "WLAN-Signal",
+    DIAG_BOOT_NAME: "Neustarts gesamt",
+    DIAG_RESTART_NAME: "Neustart",
+    DIAG_EMERGENCY_NAME: "Notabschaltungen gesamt",
+    DIAG_RESET_REASON_NAME: "Reset-Grund",
+    DIAG_HEAP_FREE_NAME: "Freier Heap",
+    DIAG_HEAP_BLOCK_NAME: "Groesster freier Heap-Block",
+    DIAG_LOOP_TIME_NAME: "Loop-Zeit",
+    DIAG_ERR_5V_NAME: "Versorgungsfehler 5V",
+    DIAG_ERR_12V_NAME: "Versorgungsfehler 12V",
+    DIAG_ERR_24V_NAME: "Versorgungsfehler 24V",
+    DIAG_ERR_LOOP1_NAME: "4-20mA CH1 Loop-Fehler",
+    DIAG_ERR_LOOP2_NAME: "4-20mA CH2 Loop-Fehler",
+    DIAG_ERR_LOOP1_LOW_NAME: "4-20mA CH1 Unterbereich",
+    DIAG_ERR_LOOP2_LOW_NAME: "4-20mA CH2 Unterbereich",
+}
+
+
+def diag_name_variants(name: str) -> tuple[str, ...]:
+    """The diagnostic entity names to try when resolving ``name``: the current one
+    first, then the pre-P6 German name if one exists (see ``DIAG_LEGACY_NAMES``)."""
+    legacy = DIAG_LEGACY_NAMES.get(name)
+    return (name,) if legacy is None else (name, legacy)
+
+
+def resolve_diag_name(lookup: Any, name: str) -> str | None:
+    """Look a diagnostic entity up by name, tolerating pre-P6 German firmware.
+
+    ``lookup`` takes the ASCII-folded name and returns an entity_id or None; the
+    caller supplies it so this works for both registry index shapes (flat by name,
+    and keyed by ``(domain, name)``). Lives here rather than in the coordinator so
+    **both** branches are unit-testable without Home Assistant — the English branch
+    of the GardenControl fault sensors cannot be exercised on live hardware until a
+    GardenControl board is re-flashed (see roadmap #4/P6)."""
+    for variant in diag_name_variants(name):
+        if eid := lookup(ascii_fold(variant)):
+            return str(eid)
+    return None
 
 
 def _diag_button() -> list[str]:
@@ -1048,16 +1153,18 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             f"    pin: {{ mcp23xxx: {exp}, number: {num}, mode: {{ output: true }}, inverted: false }}",
         ]
     # 12 valves + 2 relais (fixed board channels; names from config where mapped).
+    # The fallback names are firmware text → English since P6 (FR-I1 §14-A). They only
+    # ever reach an *unmapped* channel, which no config object and no resolver refers to.
     co = _co_switch_map(box)  # ConnectedDevice/Shared-Pump (FR-E2)
     scripts: list[str] = []
     for c in range(1, _GC_VALVE_PINS + 1):
         ov = valves.get(c)
-        sw, sc = _gc_output_block(ov, f"Ventil {c}", c - 1, 16 - c, f"gc_led_valve_{c}", co.get(ov.get("id")) if ov else None)
+        sw, sc = _gc_output_block(ov, f"Valve {c}", c - 1, 16 - c, f"gc_led_valve_{c}", co.get(ov.get("id")) if ov else None)
         L += sw
         scripts += sc
     for idx, rid in enumerate(_GC_PUMP_CHANNELS):  # R1→pin13/LED3, R2→pin12/LED2 (crossed pins)
         sw, sc = _gc_output_block(
-            relais.get(rid), f"Relais {idx + 1}", _GC_RELAY_PIN[rid], _GC_RELAY_LED[rid],
+            relais.get(rid), f"Relay {idx + 1}", _GC_RELAY_PIN[rid], _GC_RELAY_LED[rid],
             f"gc_led_relais_{idx + 1}",
         )
         L += sw
@@ -1128,7 +1235,7 @@ def _generate_gardencontrol(box: dict[str, Any]) -> str:
             L += ["    filters: [ { multiply: 10 } ]"]
     # S0 / pulse counters (on whichever binary inputs an S0 meter is assigned to).
     for pin in pulse_pins:
-        nm = esphome_name((inputs.get(pin) or {}).get("name") or "S0 Zähler")
+        nm = esphome_name((inputs.get(pin) or {}).get("name") or "S0 counter")
         L += [
             "  - platform: pulse_counter",
             f"    pin: {pin}",

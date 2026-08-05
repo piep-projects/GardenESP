@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 
 import _path  # noqa: F401
@@ -33,18 +34,71 @@ class TestHeaderAndValidation(unittest.TestCase):
         self.assertTrue(yaml.endswith("\n"))
 
     def test_device_name_from_label_is_branded(self):
-        # With a box label the device name is gardenesp-steuergeraet-<label>
-        # (stable/branded), independent of the free-text box name → entity_ids like
-        # switch.gardenesp_steuergeraet_c_*.
+        # A box that predates P6 carries no stored node_name → the legacy derivation
+        # applies, so its flashed device is *not* renamed by the update (roadmap #21).
         yaml = gen.generate_box_yaml(_box(name="Testbox", label="C"))
         self.assertIn("device_name: gardenesp-steuergeraet-c", yaml)
         self.assertNotIn("device_name: testbox", yaml)
 
+    def test_stored_node_name_wins_over_derivation(self):
+        # The node name is the device identity: once stored it is emitted verbatim,
+        # even when the label says otherwise — editing the label must not rename the
+        # flashed device (that would orphan its entities).
+        yaml = gen.generate_box_yaml(
+            _box(name="Testbox", label="C", node_name="gardenesp-controller-a")
+        )
+        self.assertIn("device_name: gardenesp-controller-a", yaml)
+        self.assertNotIn("gardenesp-steuergeraet-c", yaml)
+
+    def test_new_boxes_get_english_node_name(self):
+        self.assertEqual(
+            gen.new_device_name({"label": "C", "name": "Testbox"}),
+            "gardenesp-controller-c",
+        )
+
+    def test_legacy_node_name_matches_pre_p6_derivation(self):
+        # The back-fill feeds this to boxes created before P6 — it must reproduce the
+        # old name byte-for-byte, otherwise it renames a flashed device.
+        for box, expect in (
+            ({"label": "C", "name": "Testbox"}, "gardenesp-steuergeraet-c"),
+            ({"label": "", "name": "Box A Greenhouse"}, "box-a-greenhouse"),
+            ({"label": "", "name": "", "id": "box_1"}, "box-1"),
+        ):
+            self.assertEqual(gen.legacy_device_name(box), expect)
+
+    def test_node_name_is_write_once(self):
+        # The whole point of storing it: an existing box keeps its name even when
+        # the label changes, so a rename can never orphan the flashed entities.
+        box = {"label": "C", "name": "Testbox"}
+        self.assertEqual(
+            gen.node_name_for_upsert(box, "gardenesp-steuergeraet-a", is_new=False),
+            "gardenesp-steuergeraet-a",
+        )
+        self.assertEqual(
+            gen.node_name_for_upsert(box, "gardenesp-controller-a", is_new=False),
+            "gardenesp-controller-a",
+        )
+
+    def test_node_name_new_box_english_existing_box_legacy(self):
+        box = {"label": "C", "name": "Testbox"}
+        # New box → English; nothing exists yet that a new name could break.
+        self.assertEqual(
+            gen.node_name_for_upsert(box, None, is_new=True), "gardenesp-controller-c"
+        )
+        # Existing box without a stored name predates P6 → back-fill the legacy name,
+        # which is what it was actually flashed with.
+        for stored in (None, "", "   "):
+            self.assertEqual(
+                gen.node_name_for_upsert(box, stored, is_new=False),
+                "gardenesp-steuergeraet-c",
+            )
+
     def test_friendly_name_prefixed_with_box_label(self):
-        # GardenESP prefix + Kürzel only → entity_ids become gardenesp_steuergeraet_a_*
-        # (descriptive name intentionally dropped from the prefix).
+        # GardenESP prefix + Kürzel only → entity_ids become gardenesp_controller_a_*
+        # (descriptive name intentionally dropped from the prefix). English for every
+        # box since P6 — safe, because HA freezes existing entity_ids (FR-I1 §14-A).
         yaml = gen.generate_box_yaml(_box(name="Schreibtisch Test", label="A"))
-        self.assertIn('friendly_name: "GardenESP Steuergerät A"', yaml)
+        self.assertIn('friendly_name: "GardenESP Controller A"', yaml)
 
     def test_friendly_name_without_label_is_plain(self):
         yaml = gen.generate_box_yaml(_box(name="Schreibtisch Test"))
@@ -107,7 +161,7 @@ class TestGardenControl(unittest.TestCase):
 
     def test_umlauts_folded_to_ascii_in_name(self):
         # Umlauts/ß in the emitted name → ESPHome derives a clean object_id
-        # (switch.gardenesp_steuergeraet_a_groessere_entnahme), not one with dropped bytes.
+        # (switch.gardenesp_controller_a_groessere_entnahme), not one with dropped bytes.
         box = _box(outputs=[{"id": "v1", "type": "valve", "name": "Größere Entnahme", "channel": "5"}])
         yaml = gen.generate_box_yaml(box)
         self.assertIn('name: "Groessere Entnahme"', yaml)
@@ -253,8 +307,8 @@ class TestGardenControl(unittest.TestCase):
         # roadmap #1: 5/12/24 V supply-error inputs as diagnostic problem sensors.
         yaml = gen.generate_box_yaml(_box())
         for needle in (
-            'name: "Versorgungsfehler 5V"', 'name: "Versorgungsfehler 12V"',
-            'name: "Versorgungsfehler 24V"', "id: gc_err_5v",
+            'name: "Supply fault 5V"', 'name: "Supply fault 12V"',
+            'name: "Supply fault 24V"', "id: gc_err_5v",
             "device_class: problem", "entity_category: diagnostic",
         ):
             self.assertIn(needle, yaml)
@@ -266,7 +320,7 @@ class TestGardenControl(unittest.TestCase):
         # roadmap #1: 4-20 mA loop-error on ADS A2/A3 → problem binary_sensors,
         # raw voltages kept internal (id only).
         yaml = gen.generate_box_yaml(_box())
-        self.assertIn('name: "4-20mA CH1 Loop-Fehler"', yaml)
+        self.assertIn('name: "4-20mA CH1 loop fault"', yaml)
         self.assertIn("multiplexer: A2_GND", yaml)
         self.assertIn("multiplexer: A3_GND", yaml)
         self.assertIn("id: gc_loop1_v", yaml)
@@ -299,7 +353,7 @@ class TestEsp32Wroom(unittest.TestCase):
         # roadmap #1 diagnostics are GardenControl-specific (board expanders/ADS) —
         # the generic WROOM template must not contain them.
         yaml = gen.generate_box_yaml(_box(hw_type="esp32_wroom"))
-        for absent in ("Versorgungsfehler", "Loop-Fehler", "gc_err_5v", "gc_loop1_v", "gc_error_led"):
+        for absent in ("Supply fault", "loop fault", "gc_err_5v", "gc_loop1_v", "gc_error_led"):
             self.assertNotIn(absent, yaml)
 
     def test_pressure_falls_back_to_adc(self):
@@ -685,6 +739,134 @@ class TestBoardDiagnostics(unittest.TestCase):
         # The reset reason / heap entities must be diagnostic, not primary.
         for y in self._both():
             self.assertIn("entity_category: diagnostic", y)
+
+
+class TestDiagLegacyAliases(unittest.TestCase):
+    """P6 alias list — the safety net while old German firmware runs under the new
+    integration (FR-I1 §14-A). Without it every diagnostic reads as unresolved
+    between the update and the re-flash."""
+
+    def test_every_emitted_diag_name_has_a_legacy_alias(self):
+        # Any name the generator emits must be resolvable for a pre-P6 box too —
+        # a new DIAG_* constant without an alias entry would silently lose its
+        # diagnostic on every not-yet-flashed box.
+        emitted = {
+            getattr(gen, n) for n in dir(gen)
+            if n.startswith("DIAG_") and n.endswith("_NAME")
+        }
+        self.assertTrue(emitted)
+        self.assertEqual(emitted - set(gen.DIAG_LEGACY_NAMES), set())
+
+    def test_variants_try_current_name_first(self):
+        self.assertEqual(
+            gen.diag_name_variants(gen.DIAG_WIFI_NAME),
+            (gen.DIAG_WIFI_NAME, "WLAN-Signal"),
+        )
+
+    def test_unknown_name_has_no_alias(self):
+        self.assertEqual(gen.diag_name_variants("Something else"), ("Something else",))
+
+    def test_names_went_english(self):
+        # Guards the actual P6 change: a German name back in the generator would
+        # flash the device with it and break nothing loudly — only this test.
+        self.assertEqual(gen.DIAG_WIFI_NAME, "WiFi signal")
+        self.assertEqual(gen.PROJECT_NAME, "gardenesp.controller")
+        for name in gen.DIAG_LEGACY_NAMES:
+            self.assertNotIn(name, gen.DIAG_LEGACY_NAMES.values())
+
+    def test_resolves_new_and_old_firmware(self):
+        # Both branches of the transition. The German one is proven live by a
+        # not-yet-flashed box; the English one is what a box reports *after* the
+        # re-flash — for GardenControl that cannot be shown on hardware here (no
+        # test board), so it is pinned down in the resolver itself.
+        for name in (gen.DIAG_WIFI_NAME, gen.DIAG_ERR_5V_NAME, gen.DIAG_ERR_LOOP1_LOW_NAME):
+            legacy = gen.DIAG_LEGACY_NAMES[name]
+            new_fw = {gen.ascii_fold(name): "sensor.new"}
+            old_fw = {gen.ascii_fold(legacy): "sensor.old"}
+            self.assertEqual(gen.resolve_diag_name(new_fw.get, name), "sensor.new")
+            self.assertEqual(gen.resolve_diag_name(old_fw.get, name), "sensor.old")
+            self.assertIsNone(gen.resolve_diag_name({}.get, name))
+
+    def test_new_firmware_wins_when_both_exist(self):
+        # A box whose old entities linger in the registry must resolve to the
+        # freshly flashed ones, not to the stale German leftovers.
+        idx = {
+            gen.ascii_fold(gen.DIAG_WIFI_NAME): "sensor.new",
+            gen.ascii_fold(gen.DIAG_LEGACY_NAMES[gen.DIAG_WIFI_NAME]): "sensor.old",
+        }
+        self.assertEqual(gen.resolve_diag_name(idx.get, gen.DIAG_WIFI_NAME), "sensor.new")
+
+    def test_gardencontrol_faults_the_generator_emits_are_the_ones_resolved(self):
+        # The coordinator looks the board faults up by these constants; the board
+        # only *has* them because the generator wrote them. Couple both sides so a
+        # one-sided rename cannot silently unresolve `board_faults` — the failure
+        # mode that no test board is available to catch live.
+        box = _box(inputs=[{"id": "i", "kind": "pressure", "name": "Druck", "pin": "IN1"}])
+        yaml = gen.generate_box_yaml(box)
+        faults = (gen.DIAG_ERR_5V_NAME, gen.DIAG_ERR_12V_NAME, gen.DIAG_ERR_24V_NAME,
+                  gen.DIAG_ERR_LOOP1_NAME, gen.DIAG_ERR_LOOP2_NAME, gen.DIAG_ERR_LOOP1_LOW_NAME)
+        for name in faults:
+            self.assertIn(f'name: "{name}"', yaml, f"generator no longer emits {name!r}")
+            # …and a registry built from exactly that YAML resolves it.
+            index = {gen.ascii_fold(name): "binary_sensor.x"}
+            self.assertEqual(
+                gen.resolve_diag_name(index.get, name), "binary_sensor.x"
+            )
+
+    def test_aliases_are_distinct_after_folding(self):
+        # Resolution matches on the ASCII-folded name, so two diagnostics must not
+        # collapse onto the same key (which would resolve one to the other's entity).
+        folded = [
+            gen.ascii_fold(v)
+            for name in gen.DIAG_LEGACY_NAMES
+            for v in gen.diag_name_variants(name)
+        ]
+        self.assertEqual(len(folded), len(set(folded)))
+
+
+class TestFirmwareTextsAreEnglish(unittest.TestCase):
+    """P6 (FR-I1 §14-A): every text the *generator* puts into the firmware is
+    English. User-supplied names (valve "Rasen") are data, not translation — so
+    these boxes carry no outputs/inputs and every emitted name is template-owned."""
+
+    _GERMAN = re.compile(
+        r"Ventil|Relais|Zähler|Zaehler|Neustart|Fehler|Grund|Signal-|WLAN"
+        r"|Notabschaltung|Versorgung|Unterbereich|Freier|Groesster|Steuergerät",
+        re.IGNORECASE,
+    )
+
+    def _emitted_names(self, base, hw):
+        box = _box(name="Testbox", label="V", hw_type=hw, outputs=[], inputs=[])
+        yaml = gen.generate_box_yaml(box, base=base)
+        return yaml, re.findall(r'name:\s*"([^"]+)"', yaml)
+
+    def test_no_german_in_template_supplied_names(self):
+        for base, hw in (("gardencontrol", "gardencontrol"), ("generic", "esp32_wroom")):
+            yaml, names = self._emitted_names(base, hw)
+            self.assertTrue(names)
+            offenders = [n for n in names if self._GERMAN.search(n)]
+            self.assertEqual(offenders, [], f"{base}: German firmware text {offenders}")
+
+    def test_no_german_in_generated_comments(self):
+        for base, hw in (("gardencontrol", "gardencontrol"), ("generic", "esp32_wroom")):
+            yaml, _ = self._emitted_names(base, hw)
+            bad = [ln for ln in yaml.splitlines()
+                   if ln.lstrip().startswith("#") and self._GERMAN.search(ln)]
+            self.assertEqual(bad, [], f"{base}: German comment {bad}")
+
+    def test_unmapped_gardencontrol_channels_are_english(self):
+        # Fallback names for channels the user has not mapped — firmware text, and
+        # the only names a fresh GardenControl box shows before anything is wired.
+        _, names = self._emitted_names("gardencontrol", "gardencontrol")
+        self.assertIn("Valve 1", names)
+        self.assertIn("Valve 12", names)
+        self.assertIn("Relay 1", names)
+        self.assertIn("Relay 2", names)
+
+    def test_configured_names_are_left_alone(self):
+        # The flip side: a user's German valve name is *data* and must survive.
+        box = _box(outputs=[{"id": "v", "type": "valve", "name": "Rasen", "channel": "1"}])
+        self.assertIn('name: "Rasen"', gen.generate_box_yaml(box))
 
 
 class TestGcInputPin(unittest.TestCase):

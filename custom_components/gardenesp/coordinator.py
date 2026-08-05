@@ -137,6 +137,9 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             len(self.config.sources),
             len(self.config.lines),
         )
+        # Before anything resolves against the registry: pre-P6 boxes must own their
+        # (legacy) node name, since every box↔device match goes through it.
+        self._ensure_box_node_names()  # backfill stored node names (roadmap #21)
         self._resolve_all_boxes()  # self-heal entity refs against the live registry
         self._recompute_all_box_hashes()  # firmware config fingerprints (#9)
         self._ensure_line_seqs()  # backfill stable box-scoped L-numbers (FDS §3)
@@ -207,6 +210,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         data["updated_at"] = now
         if kind == "line":
             data["seq"] = self._line_seq_for_upsert(data, existing, is_new)
+        if kind == "box":
+            data["node_name"] = esphome_yaml.node_name_for_upsert(
+                data, getattr(existing, "node_name", None), is_new
+            )
         obj = _KIND_FROM_DICT[kind](data)
         if kind == "box":
             # Resolve outputs/inputs to real HA entity_ids (don't trust the
@@ -258,6 +265,22 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             for ln in self.config.lines.values()
             if ln.box_id == data.get("box_id") and ln.kind != LINE_KIND_SWITCH
         )
+
+    def _ensure_box_node_names(self) -> bool:
+        """Back-fill ``box.node_name`` on boxes created before P6 (roadmap #21).
+
+        Their node name used to be derived from the label on every call, so the
+        back-fill must reproduce that derivation **exactly** — anything else would
+        silently rename a flashed device. Runs once at setup; returns True when
+        something changed (caller persists)."""
+        changed = False
+        for box in self.config.boxes.values():
+            if not (box.node_name or "").strip():
+                box.node_name = esphome_yaml.legacy_device_name(
+                    {"label": box.label, "name": box.name, "id": box.id}
+                )
+                changed = True
+        return changed
 
     def _migrate_gc_input_pins(self) -> bool:
         """Rewrite legacy GardenControl 4-20 mA input pins ``A0``/``A1`` to the printed
@@ -344,10 +367,20 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
     # by string is unreliable. Instead we look the real id up in the entity
     # registry, keyed on the stable (domain, ASCII-folded name) the firmware
     # emits, and store that. Immune to friendly-name/area/rename drift.
-    def _esphome_entry_id_for_box(self, box: Box) -> str | None:
-        node = esphome_yaml.device_name(
-            {"label": box.label, "name": box.name, "id": box.id}
+    def _node_name(self, box: Box) -> str:
+        """The box's ESPHome node name — the stored one, falling back to the legacy
+        derivation for boxes not yet back-filled (roadmap #21)."""
+        return esphome_yaml.device_name(
+            {
+                "node_name": box.node_name,
+                "label": box.label,
+                "name": box.name,
+                "id": box.id,
+            }
         )
+
+    def _esphome_entry_id_for_box(self, box: Box) -> str | None:
+        node = self._node_name(box)
         for entry in self.hass.config_entries.async_entries("esphome"):
             if entry.data.get("device_name") == node:
                 return entry.entry_id
@@ -409,7 +442,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         faults = [
             {"label": label, "entity": eid}
             for label, name in labels
-            if (eid := index.get(("binary_sensor", esphome_yaml.ascii_fold(name))))
+            if (eid := esphome_yaml.resolve_diag_name(lambda k: index.get(("binary_sensor", k)), name))
         ]
         self._set_value(box.id, "board_faults", faults)
 
@@ -523,13 +556,9 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         return esphome_yaml.generate_box_yaml(box_dict, base=base)
 
     def box_node_name(self, box_id: str) -> str:
-        """The ESPHome node ``name:`` for a box (``gardenesp-steuergeraet-<label>``).
-        Used as the suggested YAML download filename so it matches the flashed
-        device rather than the internal box_id."""
-        box = self.config.boxes[box_id]
-        return esphome_yaml.device_name(
-            {"label": box.label, "name": box.name, "id": box.id}
-        )
+        """The ESPHome node ``name:`` for a box. Used as the suggested YAML download
+        filename so it matches the flashed device rather than the internal box_id."""
+        return self._node_name(self.config.boxes[box_id])
 
     def _recompute_box_hash(self, box: Box) -> None:
         try:
@@ -546,7 +575,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
     def _box_device_sw_version(self, box: Box) -> str | None:
         """The flashed firmware's reported ``project.version``. HA's ESPHome
         integration stores it as the device ``sw_version`` (and derives model
-        ``steuergeraet`` / manufacturer ``gardenesp`` from ``project.name``). None when the
+        ``controller`` / manufacturer ``gardenesp`` from ``project.name``). None when the
         device isn't added to HA or never reported a project version.
 
         HA appends ``" (ESPHome <ver>)"`` to the project version (verified live on
@@ -577,9 +606,7 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
     def _box_node_ip(self, box: Box) -> tuple[str | None, str | None]:
         """The box's ESPHome node name + host (IP/hostname) for the board zone
         (style-guide §4). Node is always known; host only once the device is added."""
-        node = esphome_yaml.device_name(
-            {"label": box.label, "name": box.name, "id": box.id}
-        )
+        node = self._node_name(box)
         entry_id = self._esphome_entry_id_for_box(box)
         entry = (
             self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
@@ -624,10 +651,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             if ent.domain == "sensor" and ent.original_name:
                 index.setdefault(esphome_yaml.ascii_fold(ent.original_name), ent.entity_id)
         return (
-            index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_WIFI_NAME)),
-            index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_BOOT_NAME)),
-            index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_EMERGENCY_NAME)),
-            index.get(esphome_yaml.ascii_fold(esphome_yaml.DIAG_RESET_REASON_NAME)),
+            esphome_yaml.resolve_diag_name(index.get, esphome_yaml.DIAG_WIFI_NAME),
+            esphome_yaml.resolve_diag_name(index.get, esphome_yaml.DIAG_BOOT_NAME),
+            esphome_yaml.resolve_diag_name(index.get, esphome_yaml.DIAG_EMERGENCY_NAME),
+            esphome_yaml.resolve_diag_name(index.get, esphome_yaml.DIAG_RESET_REASON_NAME),
         )
 
     def _refresh_box_diagnostics(self, box: Box) -> None:

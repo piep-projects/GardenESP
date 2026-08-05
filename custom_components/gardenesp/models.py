@@ -64,6 +64,13 @@ class Box:
     name: str
     hw_type: str
     label: str = ""  # short box id (A, B, …) — prefix of the A5 line id (FDS §4.1)
+    # ESPHome node name / mDNS hostname — **stored, not derived** (P6, roadmap #21).
+    # Set once when the box is created and never rewritten: it is the device's
+    # identity (ESPHome builds its unique_ids from it), so recomputing it from the
+    # editable label would rename the flashed device and orphan the user's entities.
+    # Empty on boxes that predate P6 until the coordinator back-fills them with the
+    # legacy name (`_ensure_box_node_names`).
+    node_name: str = ""
     enabled: bool = True  # deactivated box = fully out of service (no schedule/run, sensors ignored)
     outputs: list[Output] = field(default_factory=list)
     inputs: list[Input] = field(default_factory=list)
