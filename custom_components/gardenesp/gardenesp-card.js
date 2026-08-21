@@ -129,6 +129,10 @@ const I18N_EMERGENCY = {
   "card.action.start": "Start",
   "card.action.start_anyway": "Start anyway (sensor blocks)",
   "card.action.stop": "Stop",
+  "card.action.manual_start": "Start manually",
+  "card.group.controls": "Controls",
+  "card.source.low_level": "Low water level",
+  "card.empty.unconfigured": "Nothing configured yet — see settings",
   "enum.sensor.dry": "dry",
   "enum.sensor.wet": "wet",
   "enum.sensor.moist": "moist",
@@ -516,15 +520,15 @@ class GardenEspCard extends HTMLElement {
       lines.map((ln) => this._lineRow(cfg, ln)).join("") +
       after.join("") +
       (controls.length
-        ? `<div class="grouphd">Steuerungen</div>` +
+        ? `<div class="grouphd">${esc(t("card.group.controls"))}</div>` +
           controls.map((ln) => this._controlRow(cfg, ln)).join("")
         : "") +
       offRows;
     card.innerHTML = `
-      ${hd}${this._isAdmin() ? `<a class="open" href="/gardenesp" title="Einstellungen öffnen">⚙</a>` : ""}</div>
+      ${hd}${this._isAdmin() ? `<a class="open" href="/gardenesp" title="${esc(t("card.action.open_settings"))}">⚙</a>` : ""}</div>
       ${this._fwBanner(cfg)}
       ${this._rebootBanner(cfg)}
-      ${rows || `<div class="empty">Noch nichts konfiguriert — siehe Einstellungen ⚙</div>`}
+      ${rows || `<div class="empty">${esc(t("card.empty.unconfigured"))} ⚙</div>`}
       ${this._details ? this._detailsOverlay(cfg) : ""}`;
     this._bind();
     if (keepInput) {
@@ -603,7 +607,7 @@ class GardenEspCard extends HTMLElement {
     if (status === "blocked_sensor") {
       return `<button class="iconbtn warn" title="${esc(t("card.action.start_anyway"))}" data-manual="${esc(id)}" data-force="1"><ha-icon icon="mdi:play"></ha-icon></button>`;
     }
-    return `<button class="iconbtn primary" title="Manuell starten" data-manual="${esc(id)}"><ha-icon icon="mdi:play"></ha-icon></button>`;
+    return `<button class="iconbtn primary" title="${esc(t("card.action.manual_start"))}" data-manual="${esc(id)}"><ha-icon icon="mdi:play"></ha-icon></button>`;
   }
 
   // --- control row (Steuerung, kind=switch) — FR-D3a -------------------------
@@ -665,7 +669,7 @@ class GardenEspCard extends HTMLElement {
     }
     // Low water level is a property of the source — surfaced here (next to the
     // Zisterne name) rather than as a per-line „Gesperrt" badge.
-    const badge = low ? ` <span class="badge warn">⚠ Wasserstand niedrig</span>` : "";
+    const badge = low ? ` <span class="badge warn">⚠ ${esc(t("card.source.low_level"))}</span>` : "";
     // Reading outside the calibration table: the level is frozen on an endpoint, so
     // „Wasserstand niedrig" can no longer fire and consumption books 0 L (FR-S5c).
     const rw = this._rangeWarn(cfg, s);
@@ -718,7 +722,7 @@ class GardenEspCard extends HTMLElement {
   // --- details overlay (FR-D1a config read-only + FR-D6 history) -------------
   _detailsOverlay(cfg) {
     const { kind, id } = this._details;
-    let title = "Details";
+    let title = t("card.detail.title");
     let body = "";
     let icon = ICONS.line;
     if (kind === "line") {

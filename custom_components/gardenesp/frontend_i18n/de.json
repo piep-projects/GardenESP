@@ -38,12 +38,17 @@
 
   "common.banner.flash_pending": "⚠ Flashen ausstehend: {names}",
   "card.banner.flash_title": "Einstellungen → Hardware",
+  "card.group.controls": "Steuerungen",
+  "card.source.low_level": "Wasserstand niedrig",
+  "card.empty.unconfigured": "Noch nichts konfiguriert — siehe Einstellungen",
   "card.banner.reboot": "⚠ Letzter Neustart: {names}",
   "card.banner.reboot_title": "Letzter Neustart mit Störungs-Ursache (Brownout/Watchdog/Panik)",
 
   "card.action.start": "Start",
   "card.action.start_anyway": "Start trotzdem (Sensor sperrt)",
   "card.action.stop": "Stopp",
+  "card.action.manual_start": "Manuell starten",
+  "card.action.open_settings": "Einstellungen öffnen",
   "card.timer.hint": "Minuten (z. B. 5) oder m:ss (z. B. 0:18 = 18 s)",
   "card.timer.unit": "min / m:ss",
 
@@ -52,6 +57,7 @@
   "enum.sensor.moist": "feucht",
 
   "card.detail.controller": "Steuergerät",
+  "card.detail.title": "Details",
   "card.detail.controller_valve": "Steuergerät/Ventil",
   "card.detail.switch_entity": "Schalt-Entity",
   "card.detail.source": "Quelle",

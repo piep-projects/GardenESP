@@ -38,12 +38,17 @@
 
   "common.banner.flash_pending": "⚠ Flashing pending: {names}",
   "card.banner.flash_title": "Settings → Hardware",
+  "card.group.controls": "Controls",
+  "card.source.low_level": "Low water level",
+  "card.empty.unconfigured": "Nothing configured yet — see settings",
   "card.banner.reboot": "⚠ Last restart: {names}",
   "card.banner.reboot_title": "Last restart with a fault cause (brownout/watchdog/panic)",
 
   "card.action.start": "Start",
   "card.action.start_anyway": "Start anyway (sensor blocks)",
   "card.action.stop": "Stop",
+  "card.action.manual_start": "Start manually",
+  "card.action.open_settings": "Open settings",
   "card.timer.hint": "Minutes (e.g. 5) or m:ss (e.g. 0:18 = 18 s)",
   "card.timer.unit": "min / m:ss",
 
@@ -52,6 +57,7 @@
   "enum.sensor.moist": "moist",
 
   "card.detail.controller": "Controller",
+  "card.detail.title": "Details",
   "card.detail.controller_valve": "Controller/valve",
   "card.detail.switch_entity": "Switch entity",
   "card.detail.source": "Water source",
