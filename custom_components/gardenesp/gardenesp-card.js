@@ -414,13 +414,24 @@ class GardenEspCard extends HTMLElement {
     return out && out.channel ? `${letter}${out.channel}` : letter;
   }
 
+  // The settings panel is admin-only (FR-P2). Hide the entry points that would
+  // otherwise send a non-admin to a route HA refuses to open — the dashboard
+  // itself stays fully usable for them.
+  _isAdmin() {
+    return !!(this._hass && this._hass.user && this._hass.user.is_admin);
+  }
+
   // Banner shown when one or more boxes need (re)flashing (#9). Click → Einstellungen.
   _fwBanner(cfg) {
     const names = Object.values(cfg.boxes || {})
       .filter((b) => b.enabled !== false && FW_ATTENTION.includes(this._val(b.id, "fw_status")))
       .map((b) => (b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id));
     if (!names.length) return "";
-    return `<a class="fwbanner" href="/gardenesp" title="${esc(t("card.banner.flash_title"))}">${esc(t("common.banner.flash_pending", { names: names.join(" · ") }))}</a>`;
+    const txt = esc(t("common.banner.flash_pending", { names: names.join(" · ") }));
+    // Non-admins see the same warning, just not as a link into the settings.
+    return this._isAdmin()
+      ? `<a class="fwbanner" href="/gardenesp" title="${esc(t("card.banner.flash_title"))}">${txt}</a>`
+      : `<div class="fwbanner">${txt}</div>`;
   }
 
   // Banner shown when a box's last reboot had a fault cause (roadmap #20): a
@@ -510,7 +521,7 @@ class GardenEspCard extends HTMLElement {
         : "") +
       offRows;
     card.innerHTML = `
-      ${hd}<a class="open" href="/gardenesp" title="Einstellungen öffnen">⚙</a></div>
+      ${hd}${this._isAdmin() ? `<a class="open" href="/gardenesp" title="Einstellungen öffnen">⚙</a>` : ""}</div>
       ${this._fwBanner(cfg)}
       ${this._rebootBanner(cfg)}
       ${rows || `<div class="empty">Noch nichts konfiguriert — siehe Einstellungen ⚙</div>`}

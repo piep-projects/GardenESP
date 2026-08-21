@@ -155,7 +155,11 @@ async def _async_register_panel(hass: HomeAssistant, version: str) -> None:
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
         frontend_url_path=PANEL_URL_PATH,
-        require_admin=False,
+        # Settings only (FR-P2): every command the panel writes is admin-gated
+        # server-side, so a non-admin would see a form that always fails. HA
+        # hides the sidebar entry and blocks the route for them instead. The
+        # dashboard card needs no panel — its read commands stay open.
+        require_admin=True,
         config={
             "_panel_custom": {
                 "name": PANEL_CUSTOM_NAME,

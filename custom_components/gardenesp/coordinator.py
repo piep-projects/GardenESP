@@ -1298,6 +1298,17 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         out = self._output_of(ref)
         return out.entity if out else None
 
+    def line_switch_entity(self, line_id: str) -> str | None:
+        """The resolved valve ``switch.*`` of a line, or ``None`` when the line
+        is unknown or its output isn't mapped to an entity yet.
+
+        Public because the WebSocket API checks a caller's *entity* permission
+        on it before allowing a manual start/stop (FR-P2) — the valve is what
+        such a call really operates.
+        """
+        line = self.config.lines.get(line_id)
+        return self._switch_entity(line.valve_output) if line is not None else None
+
     def _switch_unavailable(self, line: Line) -> bool:
         """True only when the line's valve switch is *mapped* but currently
         ``unavailable``/``unknown`` — the per-line safety gate (#9e), separate
