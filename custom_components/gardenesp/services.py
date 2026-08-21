@@ -10,14 +10,23 @@ Emergency Shutdown would remain).
 Same semantics as the panel's WebSocket ``line/start`` / ``line/stop`` (FR-X3):
 a manual start skips the Automatik gate, ``force`` is the ad-hoc sensor override,
 and ``duration_min`` accepts fractional minutes (0.3 = 18 s).
+
+**Authorisation (FR-P2).** These services take a ``line_id``, not an
+``entity_id``, so Home Assistant's own service permission check — which only
+covers entity-target services — never fires for them. Without the check below a
+read-only user could open a valve *through this service* that HA refuses to let
+them switch directly. Direct calls therefore carry the same entity-permission
+check as the WebSocket commands; automations and scripts are unaffected because
+they run without a user context.
 """
 
 from __future__ import annotations
 
 import voluptuous as vol
 
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
@@ -59,6 +68,42 @@ def _resolve(hass: HomeAssistant, line_id: str) -> GardenESPCoordinator:
     return coord
 
 
+async def _async_require_control(
+    hass: HomeAssistant, call: ServiceCall, coord: GardenESPCoordinator, line_id: str
+) -> None:
+    """Refuse a call whose user may not control the line's valve (FR-P2).
+
+    Running a line switches its valve, so the caller needs ``control`` on that
+    entity — the same rule the WebSocket ``line/start`` enforces, and the one HA
+    itself applies to ``switch.turn_on``.
+
+    **An automation is not a user.** HA gives an automation run a fresh
+    ``Context(parent_id=…)`` **without** a ``user_id`` (verified in
+    ``components/automation``) — so this check never fires for automations or
+    scripts, which is exactly the point of these services (FR-X3b). It fires for
+    a *direct* call: Developer Tools, a REST/WebSocket ``call_service``.
+
+    An unresolvable user or an unmapped valve leaves nothing to check against
+    and is refused.
+    """
+    user_id = call.context.user_id
+    if user_id is None:
+        return
+    user = await hass.auth.async_get_user(user_id)
+    if user is not None and user.is_admin:
+        return
+    entity = coord.line_switch_entity(line_id)
+    if (
+        user is not None
+        and entity is not None
+        and user.permissions.check_entity(entity, POLICY_CONTROL)
+    ):
+        return
+    raise Unauthorized(
+        context=call.context, entity_id=entity, permission=POLICY_CONTROL
+    )
+
+
 @callback
 def async_register_services(hass: HomeAssistant) -> None:
     """Register the GardenESP services (idempotent — survives entry reload)."""
@@ -68,6 +113,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _start_line(call: ServiceCall) -> None:
         line_id = call.data[ATTR_LINE_ID]
         coord = _resolve(hass, line_id)
+        await _async_require_control(hass, call, coord, line_id)
         await coord.async_start_line(
             line_id,
             call.data.get(ATTR_DURATION_MIN),
@@ -77,6 +123,7 @@ def async_register_services(hass: HomeAssistant) -> None:
     async def _stop_line(call: ServiceCall) -> None:
         line_id = call.data[ATTR_LINE_ID]
         coord = _resolve(hass, line_id)
+        await _async_require_control(hass, call, coord, line_id)
         await coord.async_stop_line(line_id)
 
     hass.services.async_register(

@@ -119,6 +119,60 @@ class TestWebsocketAuthorisation(unittest.TestCase):
                 self.assertTrue(sends)
 
 
+class TestServiceAuthorisation(unittest.TestCase):
+    """The HA services take a ``line_id``, so HA's own service permission check
+    (entity-target services only) never fires — the integration has to do it."""
+
+    def setUp(self) -> None:
+        self.mod = _module("services.py")
+        self.fns = _functions(self.mod)
+
+    def _handlers(self) -> dict[str, ast.AST]:
+        """The inner ``_start_line`` / ``_stop_line`` closures."""
+        register = self.fns["async_register_services"]
+        return {
+            n.name: n
+            for n in ast.walk(register)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name.endswith("_line")
+        }
+
+    def test_both_services_check_control(self):
+        handlers = self._handlers()
+        self.assertEqual(set(handlers), {"_start_line", "_stop_line"})
+        for name, fn in sorted(handlers.items()):
+            with self.subTest(service=name):
+                called = {
+                    n.func.id
+                    for n in ast.walk(fn)
+                    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                }
+                self.assertIn("_async_require_control", called)
+
+    def test_check_runs_before_the_line_is_driven(self):
+        """Order matters: refusing after the run started would be theatre."""
+        for name, drives in (("_start_line", "async_start_line"), ("_stop_line", "async_stop_line")):
+            with self.subTest(service=name):
+                src = ast.dump(self._handlers()[name])
+                self.assertLess(src.index("_async_require_control"), src.index(drives))
+
+    def test_automations_pass_but_unknown_users_do_not(self):
+        """`user_id is None` (automation/script) returns early; everything else
+        must end in the refusal, not fall through."""
+        fn = self.fns["_async_require_control"]
+        early = [
+            n
+            for n in ast.walk(fn)
+            if isinstance(n, ast.If)
+            and isinstance(n.test, ast.Compare)
+            and isinstance(n.test.ops[0], ast.Is)
+            and any(isinstance(b, ast.Return) and b.value is None for b in n.body)
+        ]
+        self.assertTrue(early, "no early return for a call without a user context")
+        last = fn.body[-1]
+        self.assertIsInstance(last, ast.Raise)
+        self.assertEqual(last.exc.func.id, "Unauthorized")
+
+
 class TestPanelRegistration(unittest.TestCase):
     def test_panel_requires_admin(self):
         """The panel is settings-only; its commands are admin-gated (FR-P2)."""
