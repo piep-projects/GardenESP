@@ -27,7 +27,7 @@ def _build_entities(coordinator: GardenESPCoordinator) -> list[GardenESPRainSens
             if inp.kind != INPUT_RAIN:
                 continue
             ref = f"{box.id}#{inp.id}"
-            dev = child_device_info(ref, inp.name, box.id, "sensor")
+            dev = child_device_info(coordinator, ref, inp.name, box.id, "sensor")
             entities.append(GardenESPRainSensor(coordinator, ref, dev))
     return entities
 

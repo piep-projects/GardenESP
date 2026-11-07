@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import GardenESPCoordinator
+
+# HA 2026.8 replaced ``DeviceInfo.via_device`` (an identifier tuple) by
+# ``via_device_id`` (a device-registry id) and deprecated the old field — it
+# stops working in 2027.8. The lookup helper arrived together with the new field,
+# so its presence is the switch: newer HA gets ``via_device_id``, older HA (down to
+# the ``hacs.json`` floor) keeps ``via_device``. Drop the fallback once the floor
+# reaches 2026.8.
+_HAS_VIA_DEVICE_ID = hasattr(dr, "async_get_device_id_by_identifier")
 
 # Device names are prefixed with the app name so every derived ``entity_id``
 # carries it (e.g. ``sensor.gardenesp_rasen_status``), grouping all GardenESP
@@ -29,16 +38,37 @@ def box_device_info(box_id: str, name: str, hw_type: str) -> DeviceInfo:
 
 
 def child_device_info(
-    obj_id: str, name: str, box_id: str | None, model: str
+    coordinator: GardenESPCoordinator,
+    obj_id: str,
+    name: str,
+    box_id: str | None,
+    model: str,
 ) -> DeviceInfo:
-    """A HA device for a Line/Source/Sensor, linked to its Box via_device."""
+    """A HA device for a Line/Source/Sensor, linked to its Box (hub) device.
+
+    The Box device must already be registered (``async_setup_entry`` and
+    ``_add_new_entities`` do that before any entity is built). A reference to an
+    unknown Box gets no link — the same outcome HA produced for a dangling
+    ``via_device``.
+    """
     info = DeviceInfo(
         identifiers={(DOMAIN, obj_id)},
         name=_prefixed(name),
         model=model,
     )
-    if box_id:
+    if not box_id:
+        return info
+    if not _HAS_VIA_DEVICE_ID:
         info["via_device"] = (DOMAIN, box_id)
+        return info
+    try:
+        info["via_device_id"] = dr.async_get_device_id_by_identifier(
+            coordinator.hass,
+            (DOMAIN, box_id),
+            config_entry_id=coordinator.entry.entry_id,
+        )
+    except ValueError:
+        pass  # unknown Box: leave the device unlinked
     return info
 
 

@@ -102,7 +102,7 @@ def _build_entities(coordinator: GardenESPCoordinator) -> list[GardenESPSensor]:
 
     for source in cfg.sources.values():
         box_id = box_of_ref(source.level_input) or box_of_ref(source.meter_input)
-        dev = child_device_info(source.id, source.name, box_id, "source")
+        dev = child_device_info(coordinator, source.id, source.name, box_id, "source")
         keys = (
             ("level", "level_pct", "consumption_today")
             if source.type == SOURCE_CISTERN
@@ -114,7 +114,7 @@ def _build_entities(coordinator: GardenESPCoordinator) -> list[GardenESPSensor]:
             )
 
     for line in cfg.lines.values():
-        dev = child_device_info(line.id, line.name, line.box_id, "line")
+        dev = child_device_info(coordinator, line.id, line.name, line.box_id, "line")
         for desc in LINE_DESCRIPTIONS.values():
             entities.append(GardenESPSensor(coordinator, line.id, desc, dev))
 
@@ -123,7 +123,7 @@ def _build_entities(coordinator: GardenESPCoordinator) -> list[GardenESPSensor]:
             if inp.kind != INPUT_SOIL_MOISTURE:
                 continue
             ref = f"{box.id}#{inp.id}"
-            dev = child_device_info(ref, inp.name, box.id, "sensor")
+            dev = child_device_info(coordinator, ref, inp.name, box.id, "sensor")
             entities.append(GardenESPSensor(coordinator, ref, SOIL_DESCRIPTION, dev))
 
     return entities

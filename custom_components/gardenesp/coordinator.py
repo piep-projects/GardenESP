@@ -351,8 +351,16 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         refs = [obj_id]
         if kind == "box" and obj is not None:
             refs += [f"{obj_id}#{inp.id}" for inp in obj.inputs]
+        entry_id = self.entry.entry_id
         for ref in refs:
-            dev = dev_reg.async_get_device(identifiers={(DOMAIN, ref)})
+            # HA 2026.8 deprecated ``async_get_device`` (identifiers are no longer
+            # unique across config entries; breaks in 2027.8) in favour of the
+            # entry-scoped lookup. Older HA (down to the hacs.json floor) lacks
+            # it — same feature switch as ``entity._HAS_VIA_DEVICE_ID``.
+            if hasattr(dev_reg, "async_get_device_by_identifier"):
+                dev = dev_reg.async_get_device_by_identifier((DOMAIN, ref), entry_id)
+            else:
+                dev = dev_reg.async_get_device(identifiers={(DOMAIN, ref)})
             if dev is not None:
                 dev_reg.async_remove_device(dev.id)
 
