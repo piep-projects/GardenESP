@@ -12,10 +12,43 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-def _filter(cls: type, data: dict[str, Any]) -> dict[str, Any]:
-    """Keep only keys that are fields of ``cls`` (forward-compatible loading)."""
+class InvalidObject(ValueError):
+    """Incoming/stored data cannot form a config object (missing field, wrong shape).
+
+    The message names the object and the offending field(s), e.g.
+    ``line: missing required field(s): valve_output`` — the WebSocket API passes it
+    on as an ``invalid_format`` error instead of an opaque ``unknown_error``.
+    """
+
+
+def _required(cls: type) -> list[str]:
+    return [
+        f.name
+        for f in dataclasses.fields(cls)
+        if f.default is dataclasses.MISSING
+        and f.default_factory is dataclasses.MISSING
+    ]
+
+
+def _filter(cls: type, data: Any, where: str = "") -> dict[str, Any]:
+    """Keep only keys that are fields of ``cls`` (forward-compatible loading),
+    after checking that ``data`` is an object carrying every required field."""
+    label = where or cls.__name__.lower()
+    if not isinstance(data, dict):
+        raise InvalidObject(f"{label}: expected an object, got {type(data).__name__}")
+    missing = [n for n in _required(cls) if n not in data]
+    if missing:
+        raise InvalidObject(f"{label}: missing required field(s): {', '.join(missing)}")
     names = {f.name for f in dataclasses.fields(cls)}
     return {k: v for k, v in data.items() if k in names}
+
+
+def _items(data: dict[str, Any], key: str, label: str) -> list[Any]:
+    """The list under ``key`` (default empty), refusing a non-list value."""
+    value = data.get(key, [])
+    if not isinstance(value, list):
+        raise InvalidObject(f"{label}.{key}: expected a list, got {type(value).__name__}")
+    return value
 
 
 @dataclass(slots=True)
@@ -33,8 +66,8 @@ class Output:
     entity: str | None = None  # ESPHome switch.* entity_id
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Output":
-        return cls(**_filter(cls, data))
+    def from_dict(cls, data: dict[str, Any], where: str = "") -> "Output":
+        return cls(**_filter(cls, data, where))
 
 
 @dataclass(slots=True)
@@ -52,8 +85,8 @@ class Input:
     calibration: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Input":
-        return cls(**_filter(cls, data))
+    def from_dict(cls, data: dict[str, Any], where: str = "") -> "Input":
+        return cls(**_filter(cls, data, where))
 
 
 @dataclass(slots=True)
@@ -83,8 +116,14 @@ class Box:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Box":
         base = _filter(cls, data)
-        base["outputs"] = [Output.from_dict(o) for o in data.get("outputs", [])]
-        base["inputs"] = [Input.from_dict(i) for i in data.get("inputs", [])]
+        base["outputs"] = [
+            Output.from_dict(o, f"box.outputs[{n}]")
+            for n, o in enumerate(_items(data, "outputs", "box"))
+        ]
+        base["inputs"] = [
+            Input.from_dict(i, f"box.inputs[{n}]")
+            for n, i in enumerate(_items(data, "inputs", "box"))
+        ]
         return cls(**base)
 
 
@@ -101,8 +140,8 @@ class ScheduleEntry:
     enabled: bool = True  # disabled entries are kept but never scheduled (FR-S2a)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ScheduleEntry":
-        return cls(**_filter(cls, data))
+    def from_dict(cls, data: dict[str, Any], where: str = "") -> "ScheduleEntry":
+        return cls(**_filter(cls, data, where))
 
 
 @dataclass(slots=True)
@@ -134,7 +173,10 @@ class Line:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Line":
         base = _filter(cls, data)
-        base["schedule"] = [ScheduleEntry.from_dict(s) for s in data.get("schedule", [])]
+        base["schedule"] = [
+            ScheduleEntry.from_dict(s, f"line.schedule[{n}]")
+            for n, s in enumerate(_items(data, "schedule", "line"))
+        ]
         return cls(**base)
 
 
@@ -160,8 +202,8 @@ class Source:
     updated_at: str | None = None  # ISO-8601 UTC, refreshed on every upsert
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Source":
-        return cls(**_filter(cls, data))
+    def from_dict(cls, data: dict[str, Any], where: str = "") -> "Source":
+        return cls(**_filter(cls, data, where))
 
 
 @dataclass(slots=True)

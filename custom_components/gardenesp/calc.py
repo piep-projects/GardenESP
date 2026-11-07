@@ -181,3 +181,24 @@ def restart_counts(
         else None
     )
     return today, yesterday
+
+
+def reboot_ack_token(boot_total: float | None, reason: str | None) -> dict[str, Any] | None:
+    """Identity of a box's **last boot** for acknowledging its reset reason
+    (dashboard reboot banner, roadmap #20): the cumulative boot counter plus the
+    reported reason. ESPHome re-reports the reason on every reconnect, so the
+    reason alone can't tell a new fault reboot from the old one — the counter can.
+    ``None`` while no reason is known (nothing to acknowledge)."""
+    if not reason:
+        return None
+    boot = None if boot_total is None else int(round(boot_total))
+    return {"boot": boot, "reason": reason}
+
+
+def reboot_acked(
+    ack: dict[str, Any] | None, boot_total: float | None, reason: str | None
+) -> bool:
+    """True when the stored acknowledgement matches the box's current last boot —
+    a later reboot (counter moved) or a different reason shows the banner again."""
+    token = reboot_ack_token(boot_total, reason)
+    return token is not None and ack == token

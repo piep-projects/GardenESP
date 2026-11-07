@@ -115,6 +115,10 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         # logged as an ``emergency`` run-result on the box's most recent run (CR-0011).
         self._emergency_seen: dict[str, float] = {}
         self._last_run_line: dict[str, str] = {}  # box_id -> most recently started line
+        # box_id -> acknowledged last boot ``{"boot", "reason"}`` (calc.reboot_ack_token):
+        # hides the dashboard reboot banner for exactly that boot, for every user.
+        # Persisted in the runtime store so it survives an HA restart.
+        self._reboot_ack: dict[str, dict[str, Any]] = {}
         # source_id -> last published level (liters); the deadband holds it until the
         # reading moves by ``level_deadband_l`` (FR-S17). Not persisted — a restart
         # simply adopts the first fresh reading as the new reference.
@@ -137,6 +141,8 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             len(self.config.sources),
             len(self.config.lines),
         )
+        runtime = await self.store.async_load_runtime()
+        self._reboot_ack = dict(runtime.get("reboot_ack") or {})
         # Before anything resolves against the registry: pre-P6 boxes must own their
         # (legacy) node name, since every box↔device match goes through it.
         self._ensure_box_node_names()  # backfill stored node names (roadmap #21)
@@ -332,9 +338,31 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
             if line.box_id == box_id or box_id in self._source_boxes(source):
                 await self.async_stop_line(line.id)
 
+    async def async_ack_reboot(self, box_id: str) -> bool:
+        """Acknowledge the box's last (fault) reboot so the dashboard banner hides —
+        for all users, until the next boot or a different reason. The token is
+        taken from the live diagnostics here, never from the client. Returns
+        ``False`` when the box reports no reset reason (nothing to acknowledge)."""
+        box = self.config.boxes[box_id]
+        _wifi, boot, _emergency, reset = self._box_diag_entities(box)
+        token = calc.reboot_ack_token(self._state_float(boot), self._state_text(reset))
+        if token is None:
+            return False
+        self._reboot_ack[box_id] = token
+        await self._async_save_reboot_ack()
+        self._refresh_box_diagnostics(box)
+        return True
+
+    async def _async_save_reboot_ack(self) -> None:
+        runtime = await self.store.async_load_runtime()
+        runtime["reboot_ack"] = dict(self._reboot_ack)
+        await self.store.async_save_runtime(runtime)
+
     async def async_delete(self, kind: str, obj_id: str) -> None:
         obj = self._container(kind).pop(obj_id, None)
         await self.async_save_config()
+        if kind == "box" and self._reboot_ack.pop(obj_id, None) is not None:
+            await self._async_save_reboot_ack()
         # Remove the object's HA device(s) in place instead of reloading the
         # whole config entry — a reload briefly unloaded the integration and made
         # the frontend show "Integration nicht geladen". Removing a device from
@@ -671,8 +699,14 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
         wifi, boot, emergency, reset = self._box_diag_entities(box)
         self._check_emergency(box, emergency)
         self._set_value(box.id, "wifi_signal", self._state_float(wifi))
-        self._set_value(box.id, "reset_reason", self._state_text(reset))
+        reason = self._state_text(reset)
         current = self._state_float(boot)
+        self._set_value(box.id, "reset_reason", reason)
+        self._set_value(
+            box.id,
+            "reboot_acked",
+            calc.reboot_acked(self._reboot_ack.get(box.id), current, reason),
+        )
         # Self-heal: if the boot-count entity has a value but no baseline yet (it
         # appeared after the last refresh, e.g. a reflash/reconnect), establish the
         # baselines once so restart counts show instead of staying blank.
@@ -819,7 +853,8 @@ class GardenESPCoordinator(DataUpdateCoordinator[None]):
                 await self._async_switch(line, False)
                 # TODO (FR-A5): optionally resume remaining time instead of stop;
                 #               write a `stopped` protocol entry.
-        await self.store.async_save_runtime({"active": []})
+        runtime["active"] = []  # keep the other runtime keys (reboot_ack)
+        await self.store.async_save_runtime(runtime)
 
     # --- scheduler (FDS §5.6a / FR-A4) ---------------------------------------
     def _async_reschedule_all(self) -> None:

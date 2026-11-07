@@ -43,6 +43,8 @@
   "card.empty.unconfigured": "Noch nichts konfiguriert — siehe Einstellungen",
   "card.banner.reboot": "⚠ Letzter Neustart: {names}",
   "card.banner.reboot_title": "Letzter Neustart mit Störungs-Ursache (Brownout/Watchdog/Panik)",
+  "card.banner.reboot_dismiss": "Ausblenden",
+  "card.toast.action_failed": "{action} fehlgeschlagen: {msg}",
 
   "card.action.start": "Start",
   "card.action.start_anyway": "Start trotzdem (Sensor sperrt)",

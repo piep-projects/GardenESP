@@ -43,6 +43,8 @@
   "card.empty.unconfigured": "Nothing configured yet — see settings",
   "card.banner.reboot": "⚠ Last restart: {names}",
   "card.banner.reboot_title": "Last restart with a fault cause (brownout/watchdog/panic)",
+  "card.banner.reboot_dismiss": "Dismiss",
+  "card.toast.action_failed": "{action} failed: {msg}",
 
   "card.action.start": "Start",
   "card.action.start_anyway": "Start anyway (sensor blocks)",

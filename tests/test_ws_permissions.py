@@ -37,6 +37,9 @@ ADMIN = {
 CONTROL = {"ws_line_start", "ws_line_stop"}
 # Read-only, needed by the dashboard card for every authenticated user.
 OPEN = {"ws_config_get", "ws_topology", "ws_wiring", "ws_history"}
+# Writes display state only (hides the reboot banner for everyone), no config, no
+# output → deliberately open to every authenticated user (decision 2026-11-07).
+ACK = {"ws_box_reboot_ack"}
 
 
 def _module(name: str) -> ast.Module:
@@ -82,7 +85,7 @@ class TestWebsocketAuthorisation(unittest.TestCase):
         return names
 
     def test_classification_covers_every_registered_command(self):
-        self.assertEqual(self._registered(), ADMIN | CONTROL | OPEN)
+        self.assertEqual(self._registered(), ADMIN | CONTROL | OPEN | ACK)
 
     def test_admin_commands_guard_with_require_admin(self):
         for name in sorted(ADMIN):
@@ -95,7 +98,7 @@ class TestWebsocketAuthorisation(unittest.TestCase):
                 self.assertIn("_require_control", _guards(self.fns[name]))
 
     def test_read_commands_stay_open(self):
-        for name in sorted(OPEN):
+        for name in sorted(OPEN | ACK):
             with self.subTest(command=name):
                 guards = _guards(self.fns[name])
                 self.assertNotIn("_require_admin", guards)

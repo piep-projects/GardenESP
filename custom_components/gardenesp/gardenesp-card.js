@@ -343,7 +343,7 @@ class GardenEspCard extends HTMLElement {
     try {
       await this._ws(msg);
     } catch (err) {
-      this._toast(`${label} fehlgeschlagen: ${errText(err)}`);
+      this._toast(t("card.toast.action_failed", { action: label, msg: errText(err) }));
     }
     await this._load();
   }
@@ -441,14 +441,23 @@ class GardenEspCard extends HTMLElement {
   // Banner shown when a box's last reboot had a fault cause (roadmap #20): a
   // brownout/watchdog/panic reset — the kind that interrupts a run. Benign reasons
   // (power-on, restart button, OTA) stay hidden to keep the dashboard quiet.
+  // ESPHome keeps reporting the reason until the next boot, so each box gets its
+  // own banner with a × that acknowledges exactly that boot on the server — for
+  // every user and device; a later fault reboot shows it again (reboot_acked).
   _rebootBanner(cfg) {
-    const names = Object.values(cfg.boxes || {})
+    return Object.values(cfg.boxes || {})
       .filter((b) => b.enabled !== false)
       .map((b) => ({ b, r: this._val(b.id, "reset_reason") }))
-      .filter(({ r }) => r && PROBLEM_RESET_RE.test(r))
-      .map(({ b, r }) => `${b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id} — ${r}`);
-    if (!names.length) return "";
-    return `<div class="fwbanner" title="${esc(t("card.banner.reboot_title"))}">${esc(t("card.banner.reboot", { names: names.join(" · ") }))}</div>`;
+      .filter(({ b, r }) => r && PROBLEM_RESET_RE.test(r) && !this._val(b.id, "reboot_acked"))
+      .map(({ b, r }) => {
+        const name = `${b.label ? t("common.controller_x", { label: String(b.label).toUpperCase() }) : b.name || b.id} — ${r}`;
+        const dismiss = esc(t("card.banner.reboot_dismiss"));
+        return `<div class="fwbanner dismissable" title="${esc(t("card.banner.reboot_title"))}">` +
+          `<span>${esc(t("card.banner.reboot", { names: name }))}</span>` +
+          `<button class="bannerx" data-rebootack="${esc(b.id)}" title="${dismiss}" aria-label="${dismiss}">` +
+          `<ha-icon icon="mdi:close"></ha-icon></button></div>`;
+      })
+      .join("");
   }
 
   _build() {
@@ -985,6 +994,9 @@ class GardenEspCard extends HTMLElement {
       try { sessionStorage.setItem("gardenesp:return", location.pathname + location.search); } catch (e) { /* private mode */ }
     });
 
+    on("[data-rebootack]", (e) =>
+      this._action({ type: "gardenesp/box/reboot_ack", box_id: e.currentTarget.dataset.rebootack },
+        t("card.banner.reboot_dismiss")));
     on("[data-stop]", (e) =>
       this._action({ type: "gardenesp/line/stop", line_id: e.currentTarget.dataset.stop }, t("card.action.stop")));
     on("[data-manual]", (e) => {
@@ -1249,6 +1261,13 @@ table.hist tr.fault td { color: var(--warning-color, #ff9800); }
 .empty.err { color: var(--error-color, #f44336); }
 .fwbanner { display: block; margin: 0 0 8px; padding: 7px 10px; border-radius: 8px; font-size: 13px;
   text-decoration: none; background: rgba(255, 152, 0, .16); color: var(--warning-color, #e65100); }
+.fwbanner.dismissable { display: flex; align-items: center; gap: 8px; }
+.fwbanner.dismissable > span { flex: 1; min-width: 0; }
+.bannerx { flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; margin: -6px -6px -6px 0; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; cursor: pointer; }
+.bannerx:hover { background: rgba(0, 0, 0, .08); }
+.bannerx ha-icon { --mdc-icon-size: 18px; }
 .faultbox { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45;
   background: rgba(255, 152, 0, .16); color: var(--warning-color, #e65100); }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex;

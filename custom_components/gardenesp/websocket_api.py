@@ -34,6 +34,7 @@ from . import topology, wiring
 from .const import DOMAIN
 from .coordinator import GardenESPCoordinator
 from .esphome_yaml import YamlGenError
+from .models import InvalidObject
 
 _KINDS = ["box", "line", "source"]
 
@@ -99,6 +100,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_box_yaml,
         ws_box_exported,
         ws_box_sync,
+        ws_box_reboot_ack,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -205,7 +207,14 @@ async def ws_upsert(hass, connection, msg):
     if coord is None:
         connection.send_error(msg["id"], "not_loaded", "Integration not loaded")
         return
-    obj_id = await coord.async_upsert(msg["kind"], msg["data"])
+    try:
+        obj_id = await coord.async_upsert(msg["kind"], msg["data"])
+    except InvalidObject as err:
+        # Malformed object (e.g. a line without ``valve_output``): name the field
+        # instead of letting the TypeError surface as an opaque ``unknown_error``.
+        # Raised while building the object, i.e. before anything is stored.
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, str(err))
+        return
     connection.send_result(msg["id"], {"id": obj_id})
 
 
@@ -329,3 +338,20 @@ async def ws_box_sync(hass, connection, msg):
         return
     result = await coord.async_sync_box_entities(msg["box_id"])
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "gardenesp/box/reboot_ack", vol.Required("box_id"): str}
+)
+@websocket_api.async_response
+async def ws_box_reboot_ack(hass, connection, msg):
+    """Acknowledge a box's last fault reboot → hide the dashboard banner for all
+    users until the next boot. Open to every authenticated user by decision
+    (2026-11-07): it only changes what the banner shows — no configuration, no
+    output is touched — and non-admin household members see the banner too."""
+    coord = _coordinator(hass)
+    if coord is None or msg["box_id"] not in coord.config.boxes:
+        connection.send_error(msg["id"], "not_found", "Box not found")
+        return
+    acked = await coord.async_ack_reboot(msg["box_id"])
+    connection.send_result(msg["id"], {"acked": acked})
