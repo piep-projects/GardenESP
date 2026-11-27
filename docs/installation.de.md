@@ -2,7 +2,7 @@
 
 ## Voraussetzungen
 
-- Home Assistant **2024.6.0** oder neuer
+- Home Assistant **2024.7.0** oder neuer
 - [ESPHome](https://esphome.io/) (Add-on oder CLI) zum Flashen des Steuergeräts
 - Ein unterstütztes ESP32-Steuergerät → siehe [Hardware](hardware.md)
 

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Home Assistant **2024.6.0** or newer
+- Home Assistant **2024.7.0** or newer
 - [ESPHome](https://esphome.io/) (add-on or CLI) to flash the controller
 - A supported ESP32 controller → see [Hardware](hardware.md)
 

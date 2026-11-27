@@ -12,3 +12,4 @@ site/
 # ESPHome build/work
 .esphome/
 secrets.yaml
+_test/

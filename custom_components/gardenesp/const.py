@@ -32,9 +32,14 @@ PANEL_STATIC_URL: Final = f"/{DOMAIN}_panel/{PANEL_FILENAME}"
 PANEL_CUSTOM_NAME: Final = "gardenesp-panel"      # custom element tag
 
 # --- Lovelace card (FR-X / dashboard embedding) ------------------------------
-# Deployed to config/www/ and registered as a Lovelace module resource (/local/).
+# Served straight from the integration dir over its own static path (like the
+# panel) and registered as a Lovelace module resource — nothing is written to
+# the user's config/www/.
 CARD_FILENAME: Final = "gardenesp-card.js"
-CARD_WWW_URL: Final = f"/local/{CARD_FILENAME}"
+CARD_STATIC_URL: Final = f"/{DOMAIN}_card/{CARD_FILENAME}"
+# Where releases up to v0.13.91 copied the card (config/www/ → /local/). Only
+# used to remove the Lovelace resource those releases registered themselves.
+CARD_LEGACY_URL: Final = f"/local/{CARD_FILENAME}"
 
 # --- Frontend translation catalogs (FR-I1, i18n-concept §6) -------------------
 # One shared catalog per language for *both* front-ends. Served from the

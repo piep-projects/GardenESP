@@ -66,7 +66,7 @@ consumption.
 
 ## Requirements
 
-- Home Assistant **2024.6.0+** (brand icon from **2026.3**), [ESPHome](https://esphome.io/) for flashing
+- Home Assistant **2024.7.0+** (brand icon from **2026.3**), [ESPHome](https://esphome.io/) for flashing
 - A supported ESP32 controller → [Hardware][docs-hardware] (Smart-MF GardenControl or ESP32-WROOM)
 
 ## Learn more (optional)

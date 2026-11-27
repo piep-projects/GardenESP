@@ -8,7 +8,6 @@ integration (HACS); the on-device firmware is generated separately per box
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 
 from homeassistant.components import frontend
@@ -21,7 +20,8 @@ from homeassistant.helpers.device_registry import DeviceEntry
 
 from .const import (
     CARD_FILENAME,
-    CARD_WWW_URL,
+    CARD_LEGACY_URL,
+    CARD_STATIC_URL,
     DOMAIN,
     I18N_DIRNAME,
     I18N_STATIC_URL,
@@ -123,7 +123,7 @@ _STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 
 
 async def _async_register_panel(hass: HomeAssistant, version: str) -> None:
-    """Serve the panel JS and register the sidebar entry (idempotent).
+    """Serve the panel + card JS and register the sidebar entry (idempotent).
 
     A custom (non-iframe) panel: the ``gardenesp-panel`` custom element receives
     ``hass`` directly and talks to the WebSocket API (FDS §2). Served straight
@@ -138,6 +138,8 @@ async def _async_register_panel(hass: HomeAssistant, version: str) -> None:
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(PANEL_STATIC_URL, str(here / "panel" / PANEL_FILENAME), False),
+                # Lovelace card — served from the integration dir, no www/ copy.
+                StaticPathConfig(CARD_STATIC_URL, str(here / CARD_FILENAME), False),
                 # Frontend translation catalogs (FR-I1) — served to the panel *and*
                 # the card, which fetch `<url>/<lang>.json?v=<version>`. Cached:
                 # the version query busts it, same as for the panel/card modules.
@@ -189,31 +191,15 @@ def _version() -> str:
 _CARD_REGISTERED = f"{DOMAIN}_card_registered"
 
 
-def _deploy_file(src: Path, dst: Path) -> bool:
-    """Copy ``src`` to ``dst`` if content differs. Content-hash, not mtime —
-    HACS unzips with stale timestamps (ha-integration-howto). Returns True if
-    a copy happened."""
-    src_bytes = src.read_bytes()
-    if dst.exists() and dst.read_bytes() == src_bytes:
-        return False
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(src), str(dst))
-    return True
-
-
 async def _async_register_card(hass: HomeAssistant, version: str) -> None:
-    """Deploy the Lovelace card to ``www/`` and register it as a module resource
-    so ``type: custom:gardenesp-card`` works on any dashboard (once per run)."""
+    """Register the Lovelace card (served from the integration dir, see
+    ``_async_register_panel``) as a module resource so
+    ``type: custom:gardenesp-card`` works on any dashboard (once per run)."""
     if hass.data.get(_CARD_REGISTERED):
         return
-    src = Path(__file__).parent / CARD_FILENAME
-    dst = Path(hass.config.path("www")) / CARD_FILENAME
-    copied = await hass.async_add_executor_job(_deploy_file, src, dst)
-    if copied:
-        _LOGGER.info("Deployed %s to www/", CARD_FILENAME)
     hass.data[_CARD_REGISTERED] = True
 
-    url = f"{CARD_WWW_URL}?v={version}"
+    url = f"{CARD_STATIC_URL}?v={version}"
     # Register only once HA has started: at boot ``async_get_info`` returns an
     # empty list, so the stale-version cleanup can't run and resources pile up
     # on every version bump (ha-integration-howto timing note). Defer if needed.
@@ -231,8 +217,11 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> No
 
     Follows ha-integration-howto: ``async_get_info`` may return ``{id: dict}``
     or a list; we normalise, drop stale versions of the same base URL, and only
-    create when missing. No-op in YAML-mode Lovelace (no resource store)."""
-    base = CARD_WWW_URL
+    create when missing. No-op in YAML-mode Lovelace (no resource store).
+
+    Also drops the ``/local/gardenesp-card.js`` resource that releases up to
+    v0.13.91 registered themselves (they copied the card into ``www/``)."""
+    stale_bases = {CARD_STATIC_URL, CARD_LEGACY_URL}
     try:
         ll = hass.data.get("lovelace")
         resources = getattr(ll, "resources", None) if ll else None
@@ -258,7 +247,7 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> No
         # "already present" check, else an existing current version short-circuits
         # the cleanup and old ones linger).
         for it in items:
-            if _u(it).split("?")[0] == base and _u(it) != url:
+            if _u(it).split("?")[0] in stale_bases and _u(it) != url:
                 try:
                     await resources.async_delete_item(_i(it))
                     _LOGGER.info("Removed stale Lovelace resource %s", _u(it))
