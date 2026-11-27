@@ -8,13 +8,15 @@
 
 ## Via HACS (recommended)
 
-1. In HACS → **Integrations** → ⋮ menu → **Custom repositories**.
-2. Add the repository `piep-projects/GardenESP` with category **Integration**.
-3. Install **GardenESP** and restart Home Assistant.
-4. **Settings → Devices & services → Add integration → GardenESP**.
+1. Search for **GardenESP** in HACS.
+2. Install **GardenESP** and restart Home Assistant.
+3. **Settings → Devices & services → Add integration → GardenESP**.
 
 Once added, **GardenESP** appears in the sidebar (the panel) and the dashboard card
 `custom:gardenesp-card` becomes available.
+
+If HACS doesn't find GardenESP yet, add it as a custom repository first:
+HACS → ⋮ menu → **Custom repositories** → `piep-projects/GardenESP`, category **Integration**.
 
 ## Manually
 

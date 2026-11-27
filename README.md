@@ -23,11 +23,13 @@ From an empty HA to your first running line — the six steps at a glance.
 
 ### 1 · Install the integration
 
-**HACS** (recommended): HACS → **⋮ → Custom repositories** → `piep-projects/GardenESP`,
-category **Integration** → install → **restart Home Assistant**.
+**HACS** (recommended): search for **GardenESP** in HACS → install → **restart Home Assistant**.
 
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=piep-projects&repository=GardenESP&category=integration)
 
+> _If HACS doesn't find it yet:_ add `piep-projects/GardenESP` under **⋮ → Custom repositories**,
+> category **Integration**, then install as above.
+>
 > _Or manually:_ copy `custom_components/gardenesp/` into `config/custom_components/` and restart HA.
 
 ### 2 · Add the integration
@@ -88,7 +90,7 @@ Please report bugs and ideas as an [issue][issues-url]. Pull requests are welcom
 MIT © piep-projects
 
 <!-- badges -->
-[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
+[hacs-badge]: https://img.shields.io/badge/HACS-Default-41BDF5.svg
 [hacs-url]: https://hacs.xyz/
 [release-badge]: https://img.shields.io/github/v/release/piep-projects/GardenESP
 [release-url]: https://github.com/piep-projects/GardenESP/releases
