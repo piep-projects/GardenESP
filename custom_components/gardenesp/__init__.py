@@ -112,11 +112,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove the sidebar panel once the last GardenESP entry is gone (the static
-    path can't be unregistered, so the panel is the only frontend cleanup)."""
+    """Remove the sidebar panel and the card's dashboard resource once the last
+    GardenESP entry is gone (the static paths can't be unregistered; they vanish
+    on the next restart)."""
     if not hass.data.get(DOMAIN):
         async_unregister_services(hass)
         frontend.async_remove_panel(hass, PANEL_URL_PATH)
+        # Drop the card's dashboard resource too — after the next restart its
+        # static path is gone and the resource would only 404. Clearing the flag
+        # lets a re-added entry (same run) register it again.
+        await _async_remove_lovelace_resource(hass)
+        hass.data.pop(_CARD_REGISTERED, None)
 
 
 _STATIC_REGISTERED = f"{DOMAIN}_static_registered"
@@ -259,3 +265,25 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> No
         _LOGGER.info("Registered Lovelace resource %s", url)
     except Exception as exc:  # noqa: BLE001
         _LOGGER.warning("Lovelace resource registration failed for %s: %s", url, exc)
+
+
+async def _async_remove_lovelace_resource(hass: HomeAssistant) -> None:
+    """Delete every GardenESP card resource (current and legacy ``/local/`` URL,
+    any version) on removal. No-op without a resource store (YAML mode)."""
+    bases = {CARD_STATIC_URL, CARD_LEGACY_URL}
+    try:
+        ll = hass.data.get("lovelace")
+        resources = getattr(ll, "resources", None) if ll else None
+        if not resources or not hasattr(resources, "async_delete_item"):
+            return
+        if hasattr(resources, "async_load") and not getattr(resources, "loaded", True):
+            await resources.async_load()
+        for it in list(resources.async_items()):
+            u = it.get("url", "") if isinstance(it, dict) else getattr(it, "url", "")
+            if u.split("?")[0] not in bases:
+                continue
+            i = it.get("id") if isinstance(it, dict) else getattr(it, "id", None)
+            await resources.async_delete_item(i)
+            _LOGGER.info("Removed Lovelace resource %s", u)
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.warning("Could not remove the GardenESP card resource: %s", exc)

@@ -51,11 +51,11 @@ class _FakeResources:
         return sorted(it["url"] for it in self._items)
 
 
-def _register_fn():
+def _register_fn(name="_async_register_lovelace_resource"):
     tree = ast.parse(INIT)
     fn = next(
         n for n in tree.body
-        if isinstance(n, ast.AsyncFunctionDef) and n.name == "_async_register_lovelace_resource"
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == name
     )
     mod = ast.Module(body=[fn], type_ignores=[])
     env = {
@@ -65,7 +65,7 @@ def _register_fn():
         "_LOGGER": logging.getLogger("test"),
     }
     exec(compile(mod, "__init__", "exec"), env)  # noqa: S102
-    return env["_async_register_lovelace_resource"]
+    return env[name]
 
 
 class _Hass:
@@ -102,6 +102,23 @@ class CardStaticPathTest(unittest.TestCase):
         res = _FakeResources([url])
         asyncio.run(_register_fn()(_Hass(res), url))
         self.assertEqual(res.urls(), [url])
+
+    def test_resource_removed_with_integration(self):
+        res = _FakeResources([
+            "/gardenesp_card/gardenesp-card.js?v=0.14.1",
+            "/local/gardenesp-card.js?v=0.13.91",
+            "/local/other-card.js",                     # foreign — must stay
+        ])
+        asyncio.run(_register_fn("_async_remove_lovelace_resource")(_Hass(res)))
+        self.assertEqual(res.urls(), ["/local/other-card.js"])
+
+    def test_remove_entry_calls_resource_removal(self):
+        tree = ast.parse(INIT)
+        fn = next(
+            n for n in tree.body
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "async_remove_entry"
+        )
+        self.assertIn("_async_remove_lovelace_resource", ast.unparse(fn))
 
 
 if __name__ == "__main__":
